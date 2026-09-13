@@ -1,0 +1,44 @@
+project:
+  target: target
+
+data:
+  train_path: train.csv
+  production_path: production.csv
+
+tracking:
+  uri: sqlite:///mlflow.db
+  experiment_name: ml-sherlock
+
+model:
+  random_state: 42
+  selection_metric: rmse
+  candidates:
+    - random_forest
+    - extra_trees
+
+research:
+  # A feature is considered drifted when its test p-value is below this value.
+  drift_p_value_threshold: 0.05
+  # The production data is split: one part for adaptation, one unseen holdout for validation.
+  adaptation_fraction: 0.5
+  # A candidate is only recommended if it clears this holdout improvement threshold.
+  min_improvement_pct: 1.0
+  # This is an experiment budget. The loop records every iteration and feeds
+  # its outcome back to the planner before choosing the next allowed action.
+  max_experiments: 15
+  allowed_actions:
+    - retrain_recent_data
+    - drop_drifted_features
+    - model_search
+
+# Optional LLM research planner. Statistical evidence and the experiment
+# executor remain deterministic; the LLM can select only supported actions.
+llm:
+  enabled: false
+  provider: ollama
+  model: qwen3:8b
+  base_url: http://localhost:11434
+  temperature: 0.1
+
+report:
+  output_path: autoresearch_report.html

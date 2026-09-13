@@ -1,0 +1,111 @@
+"""Provider-agnostic, constrained LLM planning for ML investigations."""
+
+from dataclasses import dataclass
+import json
+import logging
+import os
+from typing import Protocol
+from urllib.request import Request, urlopen
+
+logger = logging.getLogger("ml_sherlock.llm")
+
+
+@dataclass(frozen=True)
+class LLMConfig:
+    provider: str
+    model: str
+    base_url: str | None = None
+    api_key_env: str | None = None
+    temperature: float = 0.1
+    timeout_seconds: int = 60
+
+
+class LLMProvider(Protocol):
+    def plan(self, evidence: dict, history: list[dict], allowed_actions: list[str]) -> dict: ...
+
+
+class _ConstrainedProvider:
+    def _prompt(self, evidence, history, allowed_actions):
+        return (
+            "You are an ML investigation planner. Statistical evidence is authoritative. "
+            "Choose exactly one permitted experiment action; do not invent an action, execute code, "
+            "or claim causality. Return JSON with action, hypothesis, rationale, and confidence.\n"
+            f"Allowed actions: {json.dumps(allowed_actions)}\n"
+            f"Evidence: {json.dumps(evidence, default=str)}\n"
+            f"Previous experiments: {json.dumps(history[-10:], default=str)}"
+        )
+
+    @staticmethod
+    def _validate(plan, allowed_actions):
+        if not isinstance(plan, dict) or plan.get("action") not in allowed_actions:
+            raise ValueError("LLM returned an invalid or disallowed experiment action.")
+        for field in ("hypothesis", "rationale"):
+            if not isinstance(plan.get(field), str) or not plan[field].strip():
+                raise ValueError(f"LLM plan must include non-empty '{field}'.")
+        plan["source"] = "llm"
+        return plan
+
+
+class OllamaProvider(_ConstrainedProvider):
+    def __init__(self, config: LLMConfig):
+        self.config = config
+
+    def plan(self, evidence, history, allowed_actions):
+        payload = json.dumps({
+            "model": self.config.model,
+            "stream": False,
+            "format": "json",
+            "options": {"temperature": self.config.temperature},
+            "messages": [{"role": "user", "content": self._prompt(evidence, history, allowed_actions)}],
+        }).encode()
+        base_url = (self.config.base_url or "http://localhost:11434").rstrip("/")
+        logger.info("Ollama plan request | endpoint=%s | model=%s | history=%d", base_url, self.config.model, len(history))
+        request = Request(f"{base_url}/api/chat", data=payload, headers={"Content-Type": "application/json"})
+        try:
+            with urlopen(request, timeout=self.config.timeout_seconds) as response:  # nosec B310: user-configured provider
+                result = json.loads(response.read())
+            plan = self._validate(json.loads(result["message"]["content"]), allowed_actions)
+            logger.info("Ollama plan received | action=%s | confidence=%s", plan["action"], plan.get("confidence", "unspecified"))
+            return plan
+        except Exception as exc:
+            logger.warning("Ollama planning failed | endpoint=%s | model=%s | reason=%s", base_url, self.config.model, exc)
+            raise
+
+
+class OpenAICompatibleProvider(_ConstrainedProvider):
+    def __init__(self, config: LLMConfig):
+        self.config = config
+
+    def plan(self, evidence, history, allowed_actions):
+        try:
+            from openai import OpenAI
+        except ImportError as exc:
+            raise RuntimeError("Install OpenAI provider support with: pip install -e '.[openai]'") from exc
+        api_key = os.getenv(self.config.api_key_env or "OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError(f"Set the API key environment variable '{self.config.api_key_env or 'OPENAI_API_KEY'}'.")
+        client = OpenAI(api_key=api_key, base_url=self.config.base_url)
+        logger.info("OpenAI-compatible plan request | endpoint=%s | model=%s | history=%d", self.config.base_url or "default", self.config.model, len(history))
+        response = client.chat.completions.create(
+            model=self.config.model,
+            temperature=self.config.temperature,
+            response_format={"type": "json_object"},
+            messages=[{"role": "user", "content": self._prompt(evidence, history, allowed_actions)}],
+        )
+        plan = self._validate(json.loads(response.choices[0].message.content), allowed_actions)
+        logger.info("OpenAI-compatible plan received | action=%s | confidence=%s", plan["action"], plan.get("confidence", "unspecified"))
+        return plan
+
+
+def create_provider(config: LLMConfig | None) -> LLMProvider | None:
+    if config is None:
+        logger.info("LLM planner disabled; deterministic research planning will be used.")
+        return None
+    provider = config.provider.lower()
+    if provider == "ollama":
+        logger.info("LLM planner configured | provider=ollama | endpoint=%s | model=%s", config.base_url or "http://localhost:11434", config.model)
+        return OllamaProvider(config)
+    if provider in {"openai", "openai_compatible"}:
+        logger.info("LLM planner configured | provider=%s | endpoint=%s | model=%s", provider, config.base_url or "default", config.model)
+        return OpenAICompatibleProvider(config)
+    raise ValueError("llm.provider must be ollama, openai, or openai_compatible.")

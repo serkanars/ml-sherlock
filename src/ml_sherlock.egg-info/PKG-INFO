@@ -1,0 +1,29 @@
+Metadata-Version: 2.4
+Name: ml-sherlock
+Version: 0.1.0
+Summary: Investigate why machine learning models fail in production.
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: pandas>=2.0
+Requires-Dist: numpy>=1.24
+Requires-Dist: scikit-learn>=1.3
+Requires-Dist: mlflow>=2.10
+Requires-Dist: scipy>=1.10
+Requires-Dist: jinja2>=3.1
+Dynamic: license-file
+
+# ML-Sherlock 🕵️
+
+Investigate why machine learning models fail in production.
+
+MVP:
+CSV → profiling → MLflow dataset/run → baseline model → production comparison → drift detection → diagnosis → HTML report.
+
+Install:
+`pip install -e .`
+
+Run:
+`python examples/quickstart.py`
+
+The MVP is deterministic first. LLM/provider and autonomous hypothesis loops come next.
