@@ -5,6 +5,7 @@ from pathlib import Path
 
 import yaml
 from .llm import LLMConfig
+from .models.trainer import BaselineTrainer
 
 
 @dataclass(frozen=True)
@@ -15,7 +16,7 @@ class InvestigationConfig:
     tracking_uri: str = "sqlite:///mlflow.db"
     experiment_name: str = "ml-sherlock"
     random_state: int = 42
-    model_candidates: tuple[str, ...] = ("random_forest", "extra_trees")
+    model_candidates: tuple[str, ...] = BaselineTrainer.SUPPORTED_MODELS
     selection_metric: str = "rmse"
     drift_p_value_threshold: float = 0.05
     adaptation_fraction: float = .5
@@ -51,9 +52,15 @@ class InvestigationConfig:
         threshold = float(research.get("drift_p_value_threshold", 0.05))
         if not 0 < threshold < 1:
             raise ValueError("'research.drift_p_value_threshold' must be between 0 and 1.")
-        candidates = model.get("candidates", ["random_forest", "extra_trees"])
+        candidates = model.get("candidates", list(BaselineTrainer.SUPPORTED_MODELS))
         if not isinstance(candidates, list) or not candidates:
             raise ValueError("'model.candidates' must be a non-empty list.")
+        invalid_candidates = set(candidates) - set(BaselineTrainer.SUPPORTED_MODELS)
+        if invalid_candidates:
+            raise ValueError(
+                f"'model.candidates' contains unsupported models: {sorted(invalid_candidates)}. "
+                f"Supported models: {list(BaselineTrainer.SUPPORTED_MODELS)}."
+            )
         metric = model.get("selection_metric", "rmse").lower()
         if metric not in {"rmse", "mae", "mape", "r2"}:
             raise ValueError("'model.selection_metric' must be rmse, mae, mape, or r2.")

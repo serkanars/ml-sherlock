@@ -22,7 +22,8 @@ class ExperimentRunner:
         )
         baseline_metrics = self.trainer.evaluate(baseline_model, holdout, target)
         adapted_train = pd.concat([reference, adaptation], ignore_index=True)
-        candidates = self.trainer.fit_and_evaluate(adapted_train, holdout, target)
+        model_names = self.trainer.candidates if action == "model_search" else [self.trainer.model_name(baseline_model)]
+        candidates = self.trainer.fit_and_evaluate(adapted_train, holdout, target, model_names)
         winner = self.trainer.select_best(candidates)
         before, after = baseline_metrics[self.selection_metric], winner.metrics[self.selection_metric]
         if self.selection_metric == "r2":
@@ -39,6 +40,8 @@ class ExperimentRunner:
             "baseline_metrics": baseline_metrics,
             "candidates": [{"model": item.params["model"], "metrics": item.metrics} for item in candidates],
             "recommended_model": winner.params["model"] if validated else "baseline",
+            "candidate_model": winner.params["model"],
+            "candidate_metrics": winner.metrics,
             "recommended_metrics": winner.metrics if validated else baseline_metrics,
             "improvement_pct": improvement,
             "training_duration_seconds": perf_counter() - started,
@@ -56,13 +59,15 @@ class ExperimentRunner:
         )
         baseline_metrics = self.trainer.evaluate(baseline_model, holdout, target)
         columns = [column for column in features if column in reference.columns and column != target]
-        if not columns:
+        if not columns or len(columns) == len(reference.columns) - 1:
             result = self.validate_retraining(reference, production, target, baseline_model, "drop_drifted_features")
-            result["note"] = "No eligible drifted feature was available; used retraining fallback."
+            result["note"] = "Feature removal would leave no features or remove none; used retraining fallback."
             return result
         adapted_train = pd.concat([reference, adaptation], ignore_index=True).drop(columns=columns)
         holdout_without_drift = holdout.drop(columns=columns)
-        candidates = self.trainer.fit_and_evaluate(adapted_train, holdout_without_drift, target)
+        candidates = self.trainer.fit_and_evaluate(
+            adapted_train, holdout_without_drift, target, [self.trainer.model_name(baseline_model)]
+        )
         winner = self.trainer.select_best(candidates)
         before, after = baseline_metrics[self.selection_metric], winner.metrics[self.selection_metric]
         improvement = ((after - before) if self.selection_metric == "r2" else (before - after)) / max(abs(before), 1e-12) * 100
@@ -74,6 +79,8 @@ class ExperimentRunner:
             "selection_metric": self.selection_metric, "baseline_metrics": baseline_metrics,
             "candidates": [{"model": item.params["model"], "metrics": item.metrics} for item in candidates],
             "recommended_model": winner.params["model"] if validated else "baseline",
+            "candidate_model": winner.params["model"],
+            "candidate_metrics": winner.metrics,
             "recommended_metrics": winner.metrics if validated else baseline_metrics,
             "improvement_pct": improvement,
             "training_duration_seconds": perf_counter() - started,

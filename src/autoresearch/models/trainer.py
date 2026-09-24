@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 import numpy as np
+from lightgbm import LGBMRegressor
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import ExtraTreesRegressor, RandomForestRegressor
 from sklearn.impute import SimpleImputer
@@ -8,6 +9,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
+from xgboost import XGBRegressor
 
 
 @dataclass
@@ -15,16 +17,17 @@ class TrainingResult:
     model: object
     metrics: dict
     params: dict
+    candidates: list | None = None
 
 
 class BaselineTrainer:
     """Trains comparable, reproducible sklearn model candidates."""
 
-    SUPPORTED_MODELS = ("random_forest", "extra_trees")
+    SUPPORTED_MODELS = ("random_forest", "extra_trees", "xgboost", "lightgbm")
 
     def __init__(self, random_state=42, candidates=None, selection_metric="rmse"):
         self.random_state = random_state
-        self.candidates = candidates or ["random_forest", "extra_trees"]
+        self.candidates = candidates or list(self.SUPPORTED_MODELS)
         self.selection_metric = selection_metric
         invalid = set(self.candidates) - set(self.SUPPORTED_MODELS)
         if invalid:
@@ -36,6 +39,15 @@ class BaselineTrainer:
             return RandomForestRegressor(**common)
         if name == "extra_trees":
             return ExtraTreesRegressor(**common)
+        if name == "xgboost":
+            return XGBRegressor(
+                **common,
+                objective="reg:squarederror",
+                tree_method="hist",
+                verbosity=0,
+            )
+        if name == "lightgbm":
+            return LGBMRegressor(**common, verbosity=-1)
         raise ValueError(f"Unsupported model candidate: {name}")
 
     def _pipeline(self, X, candidate):
@@ -56,7 +68,17 @@ class BaselineTrainer:
 
     def fit(self, df, target):
         train, validation = train_test_split(df, test_size=.2, random_state=self.random_state)
-        selected = self.select_best(self.fit_and_evaluate(train, validation, target, self.candidates))
+        results = self.fit_and_evaluate(train, validation, target, self.candidates)
+        selected = self.select_best(results)
+        selected.candidates = [
+            {
+                "model": result.params["model"],
+                "metrics": result.metrics,
+                "params": result.params,
+                "selected": result is selected,
+            }
+            for result in results
+        ]
         # Validation chooses the candidate; deployment trains that candidate on
         # all reference rows, not only the selection split.
         selected.model = self.fit_full(df, target, selected.params["model"])
@@ -78,6 +100,19 @@ class BaselineTrainer:
         model = self._pipeline(X, candidate)
         model.fit(X, y)
         return model
+
+    @staticmethod
+    def model_name(model):
+        estimator = model.named_steps["model"]
+        if isinstance(estimator, ExtraTreesRegressor):
+            return "extra_trees"
+        if isinstance(estimator, RandomForestRegressor):
+            return "random_forest"
+        if isinstance(estimator, XGBRegressor):
+            return "xgboost"
+        if isinstance(estimator, LGBMRegressor):
+            return "lightgbm"
+        raise ValueError("Unsupported baseline estimator.")
 
     def select_best(self, results):
         if not results:

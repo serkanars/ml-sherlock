@@ -15,6 +15,8 @@ model:
   candidates:
     - random_forest
     - extra_trees
+    - xgboost
+    - lightgbm
 
 research:
   # A feature is considered drifted when its test p-value is below this value.
@@ -34,9 +36,9 @@ research:
 # Optional LLM research planner. Statistical evidence and the experiment
 # executor remain deterministic; the LLM can select only supported actions.
 llm:
-  enabled: false
+  enabled: true
   provider: ollama
-  model: qwen3:8b
+  model: gemma4:31b-cloud
   base_url: http://localhost:11434
   temperature: 0.1
 
