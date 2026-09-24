@@ -9,6 +9,25 @@ from autoresearch.investigation.loop import ResearchLoop
 
 
 class CumulativeLoopTests(unittest.TestCase):
+    def test_deterministic_planner_balances_supported_drift_actions(self):
+        research = {
+            "recommended_next_experiment": {"name": "recent_data_retraining"},
+            "hypotheses": [{"evidence": {"drifted_features": ["x"]}}],
+        }
+        history = []
+        actions = []
+        for iteration in range(6):
+            plan = ResearchLoop._deterministic_plan(
+                research, history,
+                ["retrain_recent_data", "drop_drifted_features", "model_search"],
+            )
+            actions.append(plan["action"])
+            history.append({"iteration": iteration + 1, "action": plan["action"]})
+        self.assertEqual(actions, [
+            "retrain_recent_data", "model_search", "drop_drifted_features",
+            "retrain_recent_data", "model_search", "drop_drifted_features",
+        ])
+
     def test_only_accepted_models_and_features_are_carried_forward(self):
         models = [SimpleNamespace(named_steps={"model": RandomForestRegressor(random_state=i)}) for i in range(4)]
         runner = Mock()

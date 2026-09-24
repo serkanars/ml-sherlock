@@ -13,6 +13,8 @@ def main():
     warnings.filterwarnings("ignore", message="`artifact_path` is deprecated.*")
     warnings.filterwarnings("ignore", message="Saving scikit-learn models in the pickle.*")
     warnings.filterwarnings("ignore", message="Encountered an unexpected error while inferring pip requirements.*")
+    warnings.filterwarnings("ignore", message="The specified dataset source can be interpreted in multiple ways.*")
+    warnings.filterwarnings("ignore", message="Hint: Inferred schema contains integer column.*")
     p=argparse.ArgumentParser(prog="ml-sherlock")
     s=p.add_subparsers(dest="command",required=True)
     f=s.add_parser("fit"); f.add_argument("--train",required=True); f.add_argument("--target",required=True)

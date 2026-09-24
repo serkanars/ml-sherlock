@@ -10,6 +10,23 @@ from autoresearch.models.trainer import BaselineTrainer
 
 
 class ExperimentTrackingTests(unittest.TestCase):
+    def test_baseline_run_logs_dataset_input(self):
+        tracker = DatasetTracker.__new__(DatasetTracker)
+        dataset_input = object()
+        tracker._pending_dataset = dataset_input
+        dataset = {
+            "name": "train", "source": "train.csv", "context": "training",
+            "digest": "digest", "rows": 10, "columns": 3,
+        }
+        with patch("autoresearch.data.tracking.mlflow") as mlflow:
+            run = mlflow.start_run.return_value.__enter__.return_value
+            run.info.run_id = "run-id"
+            run_id = tracker.log_run(
+                dataset, {"rmse": 1.0}, {"model": "random_forest"}, object(), {"rows": 10}
+            )
+            mlflow.log_input.assert_called_once_with(dataset_input, context="training")
+            self.assertEqual(run_id, "run-id")
+
     def test_final_report_does_not_reopen_parent_run(self):
         tracker = DatasetTracker.__new__(DatasetTracker)
         decision = {"model": "random_forest", "iteration": 3,

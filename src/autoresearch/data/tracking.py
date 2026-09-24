@@ -7,15 +7,19 @@ class DatasetTracker:
     def __init__(self, tracking_uri, experiment_name):
         mlflow.set_tracking_uri(tracking_uri)
         mlflow.set_experiment(experiment_name)
+        self._pending_dataset = None
 
     def log_dataset(self, df, name, source, context):
         ds = mlflow.data.from_pandas(df, source=source, name=name)
+        self._pending_dataset = ds
         return {"name": name, "source": source, "context": context,
                 "digest": getattr(ds, "digest", None),
                 "rows": len(df), "columns": len(df.columns)}
 
     def log_run(self, dataset, metrics, params, model, profile, candidates=None):
         with mlflow.start_run() as run:
+            if self._pending_dataset is not None:
+                mlflow.log_input(self._pending_dataset, context=dataset["context"])
             mlflow.log_params(params)
             mlflow.log_metrics({k:v for k,v in metrics.items() if v is not None})
             mlflow.log_params({"dataset_rows": dataset["rows"],

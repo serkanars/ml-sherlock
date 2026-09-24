@@ -25,7 +25,9 @@ class ResearchLoop:
             evidence = dict(diagnosis, current_model=self.experiment_runner.trainer.model_name(champion),
                             current_iteration=champion_iteration, active_features=list(active_features))
             last_research = self.research_engine.investigate(evidence, drift, history)
-            plan = last_research.get("llm_plan") or self._deterministic_plan(last_research)
+            plan = last_research.get("llm_plan") or self._deterministic_plan(
+                last_research, history, self.allowed_actions
+            )
             action = plan.get("action")
             if action == "stop":
                 history.append({"iteration": iteration, "action": "stop", "source": plan.get("source", "deterministic")})
@@ -117,10 +119,43 @@ class ResearchLoop:
         return last_research
 
     @staticmethod
-    def _deterministic_plan(research):
+    def _deterministic_plan(research, history=None, allowed_actions=None):
         next_experiment = research["recommended_next_experiment"]["name"]
-        action = "retrain_recent_data" if next_experiment == "recent_data_retraining" else "stop"
-        return {"action": action, "hypothesis": "Deterministic fallback", "rationale": "Derived from statistical evidence.", "source": "deterministic"}
+        if next_experiment != "recent_data_retraining":
+            return {
+                "action": "stop",
+                "hypothesis": "No supported corrective experiment is justified.",
+                "rationale": "The statistical diagnosis does not call for recent-data retraining.",
+                "source": "deterministic",
+            }
+
+        allowed = allowed_actions or ["retrain_recent_data", "drop_drifted_features", "model_search"]
+        drifted = research["hypotheses"][0].get("evidence", {}).get("drifted_features", [])
+        preferred = ["retrain_recent_data", "model_search"]
+        if drifted:
+            preferred.append("drop_drifted_features")
+        preferred = [action for action in preferred if action in allowed]
+        if not preferred:
+            return {"action": "stop", "hypothesis": "No allowed action remains.",
+                    "rationale": "The configured action policy excludes the supported experiments.",
+                    "source": "deterministic"}
+
+        attempts = {action: 0 for action in preferred}
+        for item in history or []:
+            if item.get("action") in attempts:
+                attempts[item["action"]] += 1
+        action = min(preferred, key=lambda candidate: (attempts[candidate], preferred.index(candidate)))
+        hypotheses = {
+            "retrain_recent_data": "Representative recent labels may adapt the model to the observed shift.",
+            "model_search": "A different model family may generalize better under the observed shift.",
+            "drop_drifted_features": "Removing unstable inputs may improve robustness if they no longer generalize.",
+        }
+        return {
+            "action": action,
+            "hypothesis": hypotheses[action],
+            "rationale": "Deterministic round-robin exploration derived from measured degradation and drift.",
+            "source": "deterministic",
+        }
 
     @staticmethod
     def _recommendation(best, experiments):

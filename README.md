@@ -15,6 +15,11 @@ Install:
 Run (copy and edit `sherlock.example.yaml` for your data):
 `ml-sherlock run --config sherlock.example.yaml`
 
+Real-data walkthroughs for NYC Taxi, Citi Bike, Seoul Bike Sharing, and
+California Housing live in [`examples/`](examples/README.md). Each example
+downloads its official source, creates a reproducible reference/production
+split, and includes a ready-to-run Sherlock YAML file.
+
 The YAML file contains the dataset paths, target, tracking backend, model seed,
 model candidates, drift threshold, and report location. Supported regression
 candidates are `random_forest`, `extra_trees`, `xgboost`, and `lightgbm`.

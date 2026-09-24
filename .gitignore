@@ -2,3 +2,11 @@
 
 *.venv
 *venv
+__pycache__/
+*.py[cod]
+
+# Reproducible example outputs and downloaded source files
+examples/*/data/
+examples/*/output/
+examples/*/mlflow.db
+examples/*/mlruns/
