@@ -15,7 +15,7 @@ openai = ["openai>=1.0"]
 examples = ["pyarrow>=14.0"]
 
 [project.scripts]
-ml-sherlock = "autoresearch.cli:main"
+ml-sherlock = "ml_sherlock.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

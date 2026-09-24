@@ -26,7 +26,9 @@ def main():
                              help="MLflow tracking backend URI (default: sqlite:///mlflow.db)")
     a=p.parse_args()
     if a.command == "run":
-        result = AutoResearch.run_config(a.config)
+        from ml_sherlock import Sherlock
+
+        result = Sherlock(config=a.config).investigate()
         research = result["investigation"]["research"]
         print(f"\nCompleted {research['iterations_completed']} experiments. {research['recommendation']}")
         print(f"Report: {result['investigation']['report']}")

@@ -10,3 +10,13 @@ examples/*/data/
 examples/*/output/
 examples/*/mlflow.db
 examples/*/mlruns/
+
+mlflow.db
+mlruns/
+*.joblib
+*.report-data.json
+artifacts/
+__pycache__/
+.pytest_cache/
+.coverage
+.coverage

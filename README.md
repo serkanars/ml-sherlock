@@ -7,7 +7,7 @@ CSV → profiling → MLflow dataset/run → baseline model → production compa
 
 MLflow uses a local SQLite database (`sqlite:///mlflow.db`) by default. To use a
 different backend, pass `--tracking-uri` to the CLI or `tracking_uri` to
-`AutoResearch`.
+the YAML configuration.
 
 Install:
 `pip install -e .`
@@ -35,12 +35,12 @@ Set `llm.enabled: true` to activate Ollama. The CLI then logs provider setup,
 each planning request, selected action, and any fallback to deterministic planning.
 
 ```python
-from autoresearch import AutoResearch, LLMConfig
+from ml_sherlock import Sherlock
 
-research = AutoResearch(
-    target="y", metric="rmse", tracking_uri="http://mlflow-server:5000",
-    llm=LLMConfig(provider="ollama", model="qwen3:8b", base_url="http://localhost:11434"),
-)
+sherlock = Sherlock(config="sherlock.yaml")
+result = sherlock.investigate()
+
+print(result["investigation"]["report"])
 ```
 
 Experiment actions use the same production adaptation/holdout split for comparison:

@@ -1,2 +1,2 @@
 [console_scripts]
-ml-sherlock = autoresearch.cli:main
+ml-sherlock = ml_sherlock.cli:main
