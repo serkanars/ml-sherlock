@@ -11,6 +11,7 @@ from ..reporting.report import ReportBuilder
 from ..investigation import ExperimentRunner, ResearchEngine, ResearchLoop, SegmentAnalyzer
 from ..config import SherlockConfig
 from ..llm import LLMConfig, create_provider
+from ..evidence import EvidenceStore
 
 class ResearchRunner:
     def __init__(self, target, metric="rmse", experiment_name="ml-sherlock",
@@ -175,11 +176,13 @@ class ResearchRunner:
                                      self.baseline_metrics, production_metrics,
                                      drift, diagnosis, research)
         self.tracker.log_final_report(self.baseline_run_id, decision, report, model_path, decision_path)
+        evidence_store = EvidenceStore([target_drift, prediction_drift])
         target_evidence = target_drift.to_dict()
         prediction_evidence = prediction_drift.to_dict()
         serialized_segment_analysis = None
         segment_evidence = []
         if segment_analysis is not None:
+            evidence_store.extend(segment_analysis["evidence"])
             segment_evidence = [item.to_dict() for item in segment_analysis["evidence"]]
             serialized_segment_analysis = {
                 **segment_analysis,
@@ -188,5 +191,5 @@ class ResearchRunner:
         return {"production_metrics": production_metrics, "drift": drift,
                 "target_drift": target_evidence, "prediction_drift": prediction_evidence,
                 "segment_analysis": serialized_segment_analysis,
-                "evidence": [target_evidence, prediction_evidence, *segment_evidence],
+                "evidence": evidence_store.to_dict(),
                 "diagnosis": diagnosis, "research": research, "report": report}
