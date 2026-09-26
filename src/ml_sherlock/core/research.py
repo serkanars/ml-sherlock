@@ -8,10 +8,16 @@ from ..data.tracking import DatasetTracker
 from ..models.trainer import BaselineTrainer
 from ..monitoring.drift import DriftAnalyzer, PredictionDriftAnalyzer, TargetDriftAnalyzer
 from ..reporting.report import ReportBuilder
-from ..investigation import ExperimentRunner, ResearchEngine, ResearchLoop, SegmentAnalyzer
+from ..investigation import (
+    DiagnosisEngine,
+    ExperimentRunner,
+    ResearchEngine,
+    ResearchLoop,
+    SegmentAnalyzer,
+)
 from ..config import SherlockConfig
 from ..llm import LLMConfig, create_provider
-from ..evidence import EvidenceStore
+from ..evidence import Evidence, EvidenceStore, make_evidence_id
 
 class ResearchRunner:
     def __init__(self, target, metric="rmse", experiment_name="ml-sherlock",
@@ -43,6 +49,7 @@ class ResearchRunner:
             if segment_config is not None and segment_config.enabled
             else None
         )
+        self.diagnosis_engine = DiagnosisEngine()
         self.reporter = ReportBuilder()
         self.research_engine = ResearchEngine(planner=create_provider(llm), allowed_actions=allowed_actions)
         self.experiments = ExperimentRunner(
@@ -139,11 +146,25 @@ class ResearchRunner:
             )
         drift = self.drift.compare(ref.drop(columns=[self.target]),
                                    prod.drop(columns=[self.target])) if self.drift_enabled else []
+        evidence_store = EvidenceStore([target_drift, prediction_drift])
+        evidence_store.extend(
+            _feature_drift_evidence(
+                drift,
+                ref.drop(columns=[self.target]),
+                prod.drop(columns=[self.target]),
+                self.drift.effect_threshold,
+            )
+        )
+        if segment_analysis is not None:
+            evidence_store.extend(segment_analysis["evidence"])
         baseline_for_diagnosis = {
             key: value for key, value in self.baseline_metrics.items()
             if self.error_analysis_enabled and key in self.error_metrics
         }
-        diagnosis = self.drift.diagnose(baseline_for_diagnosis, production_metrics, drift)
+        diagnosis_engine = getattr(self, "diagnosis_engine", None) or DiagnosisEngine()
+        diagnosis = diagnosis_engine.summarize(
+            evidence_store, baseline_for_diagnosis, production_metrics
+        )
         self.loop.iteration_logger = lambda result, evidence: self.tracker.log_research_iteration(
             self.baseline_run_id, result, evidence
         )
@@ -176,13 +197,11 @@ class ResearchRunner:
                                      self.baseline_metrics, production_metrics,
                                      drift, diagnosis, research)
         self.tracker.log_final_report(self.baseline_run_id, decision, report, model_path, decision_path)
-        evidence_store = EvidenceStore([target_drift, prediction_drift])
         target_evidence = target_drift.to_dict()
         prediction_evidence = prediction_drift.to_dict()
         serialized_segment_analysis = None
         segment_evidence = []
         if segment_analysis is not None:
-            evidence_store.extend(segment_analysis["evidence"])
             segment_evidence = [item.to_dict() for item in segment_analysis["evidence"]]
             serialized_segment_analysis = {
                 **segment_analysis,
@@ -193,3 +212,26 @@ class ResearchRunner:
                 "segment_analysis": serialized_segment_analysis,
                 "evidence": evidence_store.to_dict(),
                 "diagnosis": diagnosis, "research": research, "report": report}
+
+
+def _feature_drift_evidence(results, reference, production, threshold):
+    evidence = []
+    for result in results:
+        feature = result["feature"]
+        evidence.append(
+            Evidence(
+                id=make_evidence_id(
+                    "feature_drift", "distribution_effect_size", feature=feature
+                ),
+                type="feature_drift",
+                metric="distribution_effect_size",
+                value=result.get("effect_size"),
+                feature=feature,
+                threshold=threshold,
+                severity=result["severity"],
+                sample_size_reference=int(reference[feature].notna().sum()),
+                sample_size_production=int(production[feature].notna().sum()),
+                metadata=result,
+            )
+        )
+    return evidence

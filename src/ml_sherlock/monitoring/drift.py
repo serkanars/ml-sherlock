@@ -91,22 +91,6 @@ class DriftAnalyzer:
             statistically_significant, max(psi, new_category_rate, missingness_change), drift, reasons
         )
 
-    def diagnose(self, baseline, production, drift):
-        degraded=[]
-        for m,b in baseline.items():
-            p=production.get(m)
-            if b is None or p is None: continue
-            bad = (m in {"rmse","mae","mape"} and p>b) or (m=="r2" and p<b)
-            if bad:
-                degraded.append({"metric":m,"baseline":b,"production":p,
-                                 "change_pct":((p-b)/abs(b)*100) if b else None})
-        drifted=[x for x in drift if x["drift"]]
-        return {"status":"degraded" if degraded else "healthy",
-                "performance_degradation":degraded,
-                "drifted_features":drifted,
-                "summary":f"{len(degraded)} metrics degraded; {len(drifted)} features drifted."}
-
-
 class TargetDriftAnalyzer:
     """Compare reference and production regression-target distributions."""
 
