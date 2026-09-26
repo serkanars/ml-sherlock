@@ -6,7 +6,7 @@ data:
   production: production.csv
 
 tracking:
-  uri: sqlite:///mlflow.db
+  uri: sqlite:///artifacts/mlflow.db
   experiment: ml-sherlock
 
 models:
@@ -38,4 +38,4 @@ llm:
   temperature: 0.1
 
 report:
-  output: autoresearch_report.html
+  output: artifacts/report.html

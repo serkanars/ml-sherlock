@@ -1,2 +1,0 @@
-[console_scripts]
-ml-sherlock = ml_sherlock.cli:main

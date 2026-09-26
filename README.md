@@ -5,7 +5,7 @@ Investigate why machine learning models fail in production.
 MVP:
 CSV → profiling → MLflow dataset/run → baseline model → production comparison → drift detection → diagnosis → HTML report.
 
-MLflow uses a local SQLite database (`sqlite:///mlflow.db`) by default. To use a
+MLflow uses a local SQLite database (`sqlite:///artifacts/mlflow.db`) by default. To use a
 different backend, pass `--tracking-uri` to the CLI or `tracking_uri` to
 the YAML configuration.
 
@@ -46,8 +46,9 @@ SherlockConfig
 Unknown keys, unsupported models/actions/metrics, invalid thresholds, and
 incomplete enabled features are rejected with their exact YAML location.
 Relative data, report, and SQLite paths resolve from the YAML file's directory.
-Defaults keep project files compact; see `sherlock.example.yaml` for the complete
-shape. Legacy YAML keys are temporarily migrated with a deprecation warning.
+Generated reports, models, decision records, and the default MLflow database live
+under `artifacts/`. Defaults keep project files compact; see `sherlock.example.yaml`
+for the complete shape. Legacy YAML keys are temporarily migrated with a deprecation warning.
 
 The typed configuration is also available to integrations:
 

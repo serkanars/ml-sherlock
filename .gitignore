@@ -1,22 +1,27 @@
-# python-venv
-
-*.venv
-*venv
+# Python environments, caches, and build metadata
+.venv/
+venv/
 __pycache__/
 *.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+build/
+dist/
+
+# Generated investigation and MLflow artifacts
+artifacts/
+autoresearch_report.html
+autoresearch_report.joblib
+autoresearch_report.json
+autoresearch_report.report-data.json
+mlflow.db
+mlruns/
+*.joblib
+*.report-data.json
 
 # Reproducible example outputs and downloaded source files
 examples/*/data/
 examples/*/output/
 examples/*/mlflow.db
 examples/*/mlruns/
-
-mlflow.db
-mlruns/
-*.joblib
-*.report-data.json
-artifacts/
-__pycache__/
-.pytest_cache/
-.coverage
-.coverage

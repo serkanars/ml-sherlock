@@ -34,7 +34,7 @@ class DataConfig(StrictConfig):
 
 
 class TrackingConfig(StrictConfig):
-    uri: str = "sqlite:///mlflow.db"
+    uri: str = "sqlite:///artifacts/mlflow.db"
     experiment: str = "ml-sherlock"
 
 
@@ -122,7 +122,7 @@ class LLMConfig(StrictConfig):
 
 
 class ReportConfig(StrictConfig):
-    output: Path = Path("autoresearch_report.html")
+    output: Path = Path("artifacts/report.html")
 
 
 class SherlockConfig(StrictConfig):

@@ -5,6 +5,10 @@ import mlflow.sklearn
 
 class DatasetTracker:
     def __init__(self, tracking_uri, experiment_name):
+        if tracking_uri.startswith("sqlite:///"):
+            database = tracking_uri.removeprefix("sqlite:///")
+            if database != ":memory:":
+                Path(database).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
         mlflow.set_tracking_uri(tracking_uri)
         mlflow.set_experiment(experiment_name)
         self._pending_dataset = None

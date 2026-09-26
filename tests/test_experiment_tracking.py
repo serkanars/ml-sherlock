@@ -1,4 +1,6 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 import pandas as pd
@@ -10,6 +12,15 @@ from ml_sherlock.models.trainer import BaselineTrainer
 
 
 class ExperimentTrackingTests(unittest.TestCase):
+    def test_local_sqlite_parent_is_created(self):
+        with TemporaryDirectory() as directory:
+            database = Path(directory) / "artifacts" / "mlflow.db"
+            uri = f"sqlite:///{database.as_posix()}"
+            with patch("ml_sherlock.data.tracking.mlflow") as mlflow:
+                DatasetTracker(uri, "test")
+            self.assertTrue(database.parent.is_dir())
+            mlflow.set_tracking_uri.assert_called_once_with(uri)
+
     def test_baseline_run_logs_dataset_input(self):
         tracker = DatasetTracker.__new__(DatasetTracker)
         dataset_input = object()

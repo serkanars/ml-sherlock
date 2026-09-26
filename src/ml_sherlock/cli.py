@@ -22,8 +22,8 @@ def main():
     run=s.add_parser("run", help="Run a complete investigation from a YAML configuration file")
     run.add_argument("--config", required=True)
     for command in (f, i):
-        command.add_argument("--tracking-uri", default="sqlite:///mlflow.db",
-                             help="MLflow tracking backend URI (default: sqlite:///mlflow.db)")
+        command.add_argument("--tracking-uri", default="sqlite:///artifacts/mlflow.db",
+                             help="MLflow tracking backend URI (default: sqlite:///artifacts/mlflow.db)")
     a=p.parse_args()
     if a.command == "run":
         from ml_sherlock import Sherlock

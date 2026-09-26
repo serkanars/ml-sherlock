@@ -14,7 +14,7 @@ from ..llm import LLMConfig, create_provider
 
 class ResearchRunner:
     def __init__(self, target, metric="rmse", experiment_name="ml-sherlock",
-                 tracking_uri="sqlite:///mlflow.db", random_state=42,
+                 tracking_uri="sqlite:///artifacts/mlflow.db", random_state=42,
                  drift_p_value_threshold=.05, candidates=None,
                  adaptation_fraction=.5, min_improvement_pct=1.0, llm: LLMConfig | None = None,
                  max_experiments=5, allowed_actions=None, drift_enabled=True,
@@ -96,7 +96,7 @@ class ResearchRunner:
         return {"fit": fit_result, "investigation": investigation}
 
     def investigate(self, reference_path, production_path,
-                    report_path="autoresearch_report.html"):
+                    report_path="artifacts/report.html"):
         if self.model is None:
             raise RuntimeError("Call fit() before investigate().")
         ref, prod = pd.read_csv(reference_path), pd.read_csv(production_path)

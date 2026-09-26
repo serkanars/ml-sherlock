@@ -24,8 +24,11 @@ class SherlockConfigTests(unittest.TestCase):
         loaded = SherlockConfig.from_yaml(path)
         self.assertEqual(loaded.models.candidates, list(BaselineTrainer.SUPPORTED_MODELS))
         self.assertEqual(loaded.data.train, path.parent / "train.csv")
-        self.assertEqual(loaded.report.output, path.parent / "autoresearch_report.html")
-        self.assertEqual(loaded.tracking.uri, f"sqlite:///{(path.parent / 'mlflow.db').as_posix()}")
+        self.assertEqual(loaded.report.output, path.parent / "artifacts" / "report.html")
+        self.assertEqual(
+            loaded.tracking.uri,
+            f"sqlite:///{(path.parent / 'artifacts' / 'mlflow.db').as_posix()}",
+        )
 
     def test_unknown_model_candidate_is_rejected(self):
         path = self.write_config(
