@@ -17,7 +17,7 @@ from ..investigation import (
 )
 from ..config import SherlockConfig
 from ..llm import LLMConfig, create_provider
-from ..evidence import Evidence, EvidenceStore, make_evidence_id
+from ..evidence import Evidence, EvidenceRanker, EvidenceStore, make_evidence_id
 
 class ResearchRunner:
     def __init__(self, target, metric="rmse", experiment_name="ml-sherlock",
@@ -162,13 +162,29 @@ class ResearchRunner:
             if self.error_analysis_enabled and key in self.error_metrics
         }
         diagnosis_engine = getattr(self, "diagnosis_engine", None) or DiagnosisEngine()
+        diagnoses = diagnosis_engine.diagnose(
+            evidence_store, baseline_for_diagnosis, production_metrics
+        )
         diagnosis = diagnosis_engine.summarize(
             evidence_store, baseline_for_diagnosis, production_metrics
+        )
+        ranked_evidence = EvidenceRanker().rank(
+            evidence_store, limit=len(evidence_store)
         )
         self.loop.iteration_logger = lambda result, evidence: self.tracker.log_research_iteration(
             self.baseline_run_id, result, evidence
         )
-        research = self.loop.run(ref, prod, self.target, self.model, diagnosis, drift, final_evaluation)
+        research = self.loop.run(
+            ref,
+            prod,
+            self.target,
+            self.model,
+            diagnosis,
+            drift,
+            final_evaluation,
+            diagnoses=diagnoses,
+            ranked_evidence=ranked_evidence,
+        )
         self.recommended_model = research.pop("_champion")
         research["initial_candidates"] = self.baseline_candidates
         decision = research["decision"]

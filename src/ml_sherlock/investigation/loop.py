@@ -15,7 +15,8 @@ class ResearchLoop:
         self.random_state = random_state
         self.iteration_logger = iteration_logger
 
-    def run(self, reference, production, target, baseline_model, diagnosis, drift, final_evaluation=None):
+    def run(self, reference, production, target, baseline_model, diagnosis, drift,
+            final_evaluation=None, *, diagnoses=None, ranked_evidence=None):
         history, experiments = [], []
         last_research = None
         champion = baseline_model
@@ -24,7 +25,9 @@ class ResearchLoop:
         for iteration in range(1, self.max_experiments + 1):
             evidence = dict(diagnosis, current_model=self.experiment_runner.trainer.model_name(champion),
                             current_iteration=champion_iteration, active_features=list(active_features))
-            last_research = self.research_engine.investigate(evidence, drift, history)
+            last_research = self._investigate(
+                evidence, drift, history, diagnoses, ranked_evidence
+            )
             plan = last_research.get("llm_plan") or self._deterministic_plan(
                 last_research, history, self.allowed_actions
             )
@@ -77,7 +80,9 @@ class ResearchLoop:
             })
 
         if not last_research:
-            last_research = self.research_engine.investigate(diagnosis, drift, history)
+            last_research = self._investigate(
+                diagnosis, drift, history, diagnoses, ranked_evidence
+            )
         best = next((item for item in experiments if item["iteration"] == champion_iteration), None)
         trainer = self.experiment_runner.trainer
         decision = {
@@ -121,7 +126,12 @@ class ResearchLoop:
     @staticmethod
     def _deterministic_plan(research, history=None, allowed_actions=None):
         next_experiment = research["recommended_next_experiment"]["name"]
-        if next_experiment != "recent_data_retraining":
+        first_hypothesis = (research.get("hypotheses") or [{}])[0]
+        recommended_action = first_hypothesis.get("recommended_experiment")
+        if recommended_action is None and next_experiment == "recent_data_retraining":
+            recommended_action = "retrain_recent_data"
+        allowed = allowed_actions or ["retrain_recent_data", "drop_drifted_features", "model_search"]
+        if recommended_action not in allowed:
             return {
                 "action": "stop",
                 "hypothesis": "No supported corrective experiment is justified.",
@@ -129,12 +139,15 @@ class ResearchLoop:
                 "source": "deterministic",
             }
 
-        allowed = allowed_actions or ["retrain_recent_data", "drop_drifted_features", "model_search"]
-        drifted = research["hypotheses"][0].get("evidence", {}).get("drifted_features", [])
-        preferred = ["retrain_recent_data", "model_search"]
+        drifted = first_hypothesis.get("metadata", {}).get("features", [])
+        if not drifted:
+            drifted = first_hypothesis.get("evidence", {}).get("drifted_features", [])
+        preferred = [recommended_action]
+        if recommended_action == "retrain_recent_data":
+            preferred.append("model_search")
         if drifted:
             preferred.append("drop_drifted_features")
-        preferred = [action for action in preferred if action in allowed]
+        preferred = list(dict.fromkeys(action for action in preferred if action in allowed))
         if not preferred:
             return {"action": "stop", "hypothesis": "No allowed action remains.",
                     "rationale": "The configured action policy excludes the supported experiments.",
@@ -156,6 +169,17 @@ class ResearchLoop:
             "rationale": "Deterministic round-robin exploration derived from measured degradation and drift.",
             "source": "deterministic",
         }
+
+    def _investigate(self, diagnosis, drift, history, diagnoses, ranked_evidence):
+        if diagnoses is None or ranked_evidence is None:
+            return self.research_engine.investigate(diagnosis, drift, history)
+        return self.research_engine.investigate(
+            diagnosis,
+            drift,
+            history,
+            diagnoses=diagnoses,
+            ranked_evidence=ranked_evidence,
+        )
 
     @staticmethod
     def _recommendation(best, experiments):
