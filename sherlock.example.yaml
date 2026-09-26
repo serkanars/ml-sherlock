@@ -24,6 +24,9 @@ investigation:
     metrics: [rmse, mae, mape, r2]
   segments:
     enabled: false
+    min_rows: 100
+    numeric_bins: 4
+    max_segments: 20
 
 experiments:
   max_iterations: 15

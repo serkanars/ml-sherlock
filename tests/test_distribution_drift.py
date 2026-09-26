@@ -106,6 +106,23 @@ class DistributionDriftTests(unittest.TestCase):
             runner.trainer.evaluate.return_value = {"rmse": 1.0}
             runner.target_drift = TargetDriftAnalyzer()
             runner.prediction_drift = PredictionDriftAnalyzer()
+            segment_evidence = Evidence(
+                "segment-c",
+                "segment_degradation",
+                "rmse_degradation_pct",
+                120.0,
+                feature="segment",
+                segment="segment=C",
+            )
+            runner.segment_analyzer = Mock()
+            runner.segment_analyzer.analyze.return_value = {
+                "metric": "rmse",
+                "overall_reference_metric": 1.0,
+                "overall_production_metric": 2.0,
+                "segments": [],
+                "evidence": [segment_evidence],
+            }
+            runner.metric = "rmse"
             runner.drift = Mock()
             runner.drift.compare.return_value = []
             runner.drift.diagnose.return_value = {
@@ -142,8 +159,11 @@ class DistributionDriftTests(unittest.TestCase):
         self.assertEqual(result["target_drift"]["type"], "target_drift")
         self.assertEqual(result["prediction_drift"]["type"], "prediction_drift")
         self.assertEqual(
+            result["segment_analysis"]["evidence"][0]["type"], "segment_degradation"
+        )
+        self.assertEqual(
             [item["type"] for item in result["evidence"]],
-            ["target_drift", "prediction_drift"],
+            ["target_drift", "prediction_drift", "segment_degradation"],
         )
         runner.loop.run.assert_called_once()
 

@@ -86,13 +86,8 @@ class SegmentConfig(StrictConfig):
     enabled: bool = False
     columns: list[str] = Field(default_factory=list)
     min_rows: int = Field(default=50, ge=2)
+    numeric_bins: int = Field(default=4, ge=2, le=100)
     max_segments: int = Field(default=20, ge=1, le=1000)
-
-    @model_validator(mode="after")
-    def enabled_segments_require_columns(self):
-        if self.enabled and not self.columns:
-            raise ValueError("enabled segment analysis requires at least one column")
-        return self
 
 
 class InvestigationConfig(StrictConfig):

@@ -48,13 +48,16 @@ class SherlockConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(ValidationError, "max_experimnts"):
             SherlockConfig.from_yaml(path)
 
-    def test_enabled_segments_require_columns(self):
+    def test_enabled_segments_support_automatic_column_discovery(self):
         path = self.write_config(
             "version: 1\ndata:\n  target: y\n  train: train.csv\n  production: prod.csv\n"
-            "investigation:\n  segments:\n    enabled: true\n"
+            "investigation:\n  segments:\n    enabled: true\n    min_rows: 100\n"
         )
-        with self.assertRaisesRegex(ValidationError, "requires at least one column"):
-            SherlockConfig.from_yaml(path)
+        loaded = SherlockConfig.from_yaml(path)
+        self.assertTrue(loaded.investigation.segments.enabled)
+        self.assertEqual(loaded.investigation.segments.columns, [])
+        self.assertEqual(loaded.investigation.segments.min_rows, 100)
+        self.assertEqual(loaded.investigation.segments.numeric_bins, 4)
 
     def test_drift_multiple_testing_policy_is_configurable(self):
         path = self.write_config(
