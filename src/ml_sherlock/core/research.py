@@ -211,7 +211,10 @@ class ResearchRunner:
             experiment.pop("_model", None)
         report = self.reporter.build(report_path, self.target,
                                      self.baseline_metrics, production_metrics,
-                                     drift, diagnosis, research)
+                                     drift, diagnosis, research,
+                                     evidence=evidence_store.all(),
+                                     ranked_evidence=ranked_evidence,
+                                     segment_analysis=segment_analysis)
         self.tracker.log_final_report(self.baseline_run_id, decision, report, model_path, decision_path)
         target_evidence = target_drift.to_dict()
         prediction_evidence = prediction_drift.to_dict()

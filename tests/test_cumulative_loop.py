@@ -50,6 +50,7 @@ class CumulativeLoopTests(unittest.TestCase):
         self.assertIs(calls[2].args[4], models[1])
         self.assertEqual(list(calls[2].args[1].columns), ["x", "target"])
         self.assertEqual([item["parent_iteration"] for item in result["experiments"]], [0, 1, 1])
+        self.assertTrue(all("hypothesis_id" in item for item in result["experiments"]))
         self.assertIs(result["_champion"], models[3])
         self.assertEqual(result["decision"]["iteration"], 3)
         self.assertEqual(result["decision"]["parameters"]["random_state"], 3)

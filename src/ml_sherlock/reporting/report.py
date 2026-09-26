@@ -24,6 +24,22 @@ ACTION_NAMES = {
     "model_search": "Model karşılaştırması",
     "drop_drifted_features": "Driftli özellikleri çıkarma",
 }
+EVIDENCE_NAMES = {
+    "performance_degradation": "Performans düşüşü",
+    "feature_drift": "Özellik drifti",
+    "target_drift": "Hedef drifti",
+    "prediction_drift": "Tahmin drifti",
+    "residual_drift": "Artık hata drifti",
+    "feature_error_relationship": "Özellik-hata ilişkisi",
+    "segment_degradation": "Segment bozulması",
+}
+HYPOTHESIS_NAMES = {
+    "covariate_shift": "Kovaryat değişimi",
+    "segment_specific_degradation": "Segmente özgü bozulma",
+    "target_relationship_shift": "Hedef ilişkisi değişimi",
+    "unstable_feature": "Kararsız özellik",
+    "model_family_robustness": "Model ailesi dayanıklılığı",
+}
 
 
 def number(value, digits=2):
@@ -78,7 +94,9 @@ def experiment_chart(experiments, metric, dark=False):
 
 
 class ReportBuilder:
-    def build(self, output_path, target, baseline, production, drift, diagnosis, research):
+    def build(self, output_path, target, baseline, production, drift, diagnosis, research,
+              *, evidence=None, ranked_evidence=None, segment_analysis=None,
+              residual_analysis=None, feature_error_analysis=None):
         path = Path(output_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         decision = research.get("decision") or {}
@@ -104,6 +122,30 @@ class ReportBuilder:
         data = decision.get("training_data", {})
         adaptation_rows = experiments[0].get("adaptation_rows") if experiments else None
         selection_rows = experiments[0].get("holdout_rows") if experiments else None
+        evidence_rows = _collect_evidence(
+            evidence,
+            drift,
+            residual_analysis=residual_analysis,
+            feature_error_analysis=feature_error_analysis,
+        )
+        evidence_by_id = {item["id"]: item for item in evidence_rows}
+        ranked_rows = _ranked_rows(ranked_evidence, evidence_rows)
+        top_evidence = ranked_rows[:8]
+        feature_drift = [item for item in evidence_rows if item["type"] == "feature_drift"]
+        distribution_drift = [
+            item for item in evidence_rows
+            if item["type"] in {"target_drift", "prediction_drift", "residual_drift"}
+        ]
+        feature_error = [
+            item for item in evidence_rows if item["type"] == "feature_error_relationship"
+        ]
+        degraded_segments = sorted(
+            (item for item in evidence_rows if item["type"] == "segment_degradation"),
+            key=lambda item: (-_numeric(item.get("value")), item["id"]),
+        )[:20]
+        hypothesis_rows = _hypothesis_rows(
+            research.get("hypotheses", []), evidence_by_id, experiments, metric
+        )
         downloads = []
         for suffix, label in ((".json", "Karar JSON"), (".joblib", "Eğitilmiş model")):
             companion = path.with_suffix(suffix)
@@ -113,6 +155,8 @@ class ReportBuilder:
         env.filters["number"] = number
         env.filters["model_name"] = lambda value: MODEL_NAMES.get(value, value)
         env.filters["action_name"] = lambda value: ACTION_NAMES.get(value, value)
+        env.filters["evidence_name"] = lambda value: EVIDENCE_NAMES.get(value, value)
+        env.filters["hypothesis_name"] = lambda value: HYPOTHESIS_NAMES.get(value, value)
         html = env.get_template("report.html").render(
             target=target, baseline=baseline, production=production, diagnosis=diagnosis,
             research=research, decision=decision, experiments=experiments, selected=selected,
@@ -124,9 +168,140 @@ class ReportBuilder:
             adaptation_rows=adaptation_rows, selection_rows=selection_rows,
             downloads=downloads, chart=experiment_chart(experiments, metric),
             dark_chart=experiment_chart(experiments, metric, dark=True),
+            evidence_rows=evidence_rows, top_evidence=top_evidence,
+            feature_drift=feature_drift, distribution_drift=distribution_drift,
+            feature_error=feature_error, degraded_segments=degraded_segments,
+            hypothesis_rows=hypothesis_rows, diagnoses=diagnosis.get("patterns", []),
+            segment_analysis=segment_analysis,
         )
         path.write_text(html, encoding="utf-8")
         snapshot = dict(target=target, baseline=baseline, production=production, drift=drift,
-                        diagnosis=diagnosis, research=research)
+                        evidence=evidence_rows, diagnosis=diagnosis, research=research)
         path.with_suffix(".report-data.json").write_text(json.dumps(snapshot, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
         return str(path.resolve())
+
+
+def _collect_evidence(evidence, drift, *, residual_analysis=None, feature_error_analysis=None):
+    collected = {}
+    for item in evidence or []:
+        serialized = item.to_dict() if hasattr(item, "to_dict") else dict(item)
+        collected[serialized["id"]] = _evidence_row(serialized)
+    for item in drift:
+        evidence_id = f"feature-drift-{item['feature']}"
+        if any(row.get("feature") == item["feature"] and row["type"] == "feature_drift"
+               for row in collected.values()):
+            continue
+        synthetic = {
+            "id": evidence_id,
+            "type": "feature_drift",
+            "metric": "distribution_effect_size",
+            "value": item.get("effect_size", item.get("statistic")),
+            "feature": item["feature"],
+            "segment": None,
+            "severity": item.get("severity", "info"),
+            "direction": None,
+            "metadata": item,
+        }
+        collected[evidence_id] = _evidence_row(synthetic)
+    for analysis in (residual_analysis, feature_error_analysis):
+        if not analysis:
+            continue
+        items = analysis.get("evidence", []) if isinstance(analysis, dict) else []
+        if items is None:
+            continue
+        if not isinstance(items, list):
+            items = [items]
+        for item in items:
+            serialized = item.to_dict() if hasattr(item, "to_dict") else dict(item)
+            collected.setdefault(serialized["id"], _evidence_row(serialized))
+    return list(collected.values())
+
+
+def _evidence_row(item):
+    metadata = item.get("metadata") or {}
+    subject = item.get("segment") or item.get("feature") or EVIDENCE_NAMES.get(
+        item["type"], item["type"]
+    )
+    return {
+        **item,
+        "metadata": metadata,
+        "subject": subject,
+        "active": metadata.get("drift") is not False and (
+            metadata.get("drift") is True or item.get("severity") != "info"
+        ),
+        "summary": _evidence_summary(item, subject),
+    }
+
+
+def _evidence_summary(item, subject):
+    evidence_type = item["type"]
+    if evidence_type == "feature_drift":
+        return f"{subject} dağılımında ölçülmüş değişim."
+    if evidence_type == "target_drift":
+        return f"{subject} hedef dağılımı referans dönemden farklı."
+    if evidence_type == "prediction_drift":
+        return "Model tahminlerinin dağılımı referans dönemden farklı."
+    if evidence_type == "residual_drift":
+        return "Model artık hatalarının dağılımında değişim ölçüldü."
+    if evidence_type == "feature_error_relationship":
+        return f"{subject}, mutlak model hatasıyla tahmine dayalı ilişki gösteriyor."
+    if evidence_type == "segment_degradation":
+        return f"Model performansındaki bozulma {subject} segmentinde yoğunlaşıyor."
+    return f"{subject} için ölçülmüş araştırma bulgusu."
+
+
+def _ranked_rows(ranked_evidence, evidence_rows):
+    by_id = {item["id"]: item for item in evidence_rows}
+    ordered = []
+    for item in ranked_evidence or []:
+        evidence_id = item.id if hasattr(item, "id") else item.get("id")
+        if evidence_id in by_id and by_id[evidence_id] not in ordered:
+            ordered.append(by_id[evidence_id])
+    severity = {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0}
+    remaining = [item for item in evidence_rows if item not in ordered]
+    remaining.sort(
+        key=lambda item: (
+            -severity.get(item.get("severity"), 0),
+            -abs(_numeric(item.get("value"))),
+            item["id"],
+        )
+    )
+    return [*ordered, *remaining]
+
+
+def _hypothesis_rows(hypotheses, evidence_by_id, experiments, metric):
+    rows = []
+    for hypothesis in hypotheses:
+        item = dict(hypothesis)
+        supporting = [
+            evidence_by_id[evidence_id]
+            for evidence_id in item.get("evidence_ids", [])
+            if evidence_id in evidence_by_id
+        ]
+        matches = [
+            experiment for experiment in experiments
+            if experiment.get("hypothesis_id") == item.get("id")
+        ]
+        if not matches and item.get("recommended_experiment"):
+            matches = [
+                experiment for experiment in experiments
+                if experiment.get("action") == item["recommended_experiment"]
+            ]
+        item["supporting_evidence"] = supporting
+        item["experiment_results"] = [
+            {
+                "iteration": experiment.get("iteration"),
+                "status": experiment.get("status"),
+                "action": experiment.get("action"),
+                "improvement_pct": experiment.get("improvement_pct"),
+                "candidate_model": experiment.get("candidate_model"),
+                "candidate_metric": experiment.get("candidate_metrics", {}).get(metric),
+            }
+            for experiment in matches
+        ]
+        rows.append(item)
+    return rows
+
+
+def _numeric(value):
+    return float(value) if isinstance(value, (int, float)) and math.isfinite(value) else 0.0

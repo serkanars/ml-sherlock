@@ -58,6 +58,9 @@ class ResearchLoop:
             result["iteration"] = iteration
             result["training_seed"] = self.experiment_runner.trainer.random_state
             result["planner"] = plan
+            result["hypothesis_id"] = plan.get("hypothesis_id") or self._hypothesis_for_action(
+                last_research, action
+            )
             result["drifted_features"] = [item["feature"] for item in drift if item["drift"]]
             if self.iteration_logger:
                 result["mlflow_run_id"] = self.iteration_logger(result, drift)
@@ -70,6 +73,7 @@ class ResearchLoop:
             experiments.append(result)
             history.append({
                 "iteration": iteration, "action": action, "status": result["status"],
+                "hypothesis_id": result["hypothesis_id"],
                 "improvement_pct": result["improvement_pct"], "recommended_model": result["recommended_model"],
                 "candidate_model": result["candidate_model"],
                 "candidate_metrics": result["candidate_metrics"],
@@ -167,6 +171,7 @@ class ResearchLoop:
             "action": action,
             "hypothesis": hypotheses[action],
             "rationale": "Deterministic round-robin exploration derived from measured degradation and drift.",
+            "hypothesis_id": first_hypothesis.get("id"),
             "source": "deterministic",
         }
 
@@ -180,6 +185,13 @@ class ResearchLoop:
             diagnoses=diagnoses,
             ranked_evidence=ranked_evidence,
         )
+
+    @staticmethod
+    def _hypothesis_for_action(research, action):
+        for hypothesis in research.get("hypotheses", []):
+            if hypothesis.get("recommended_experiment") == action:
+                return hypothesis.get("id")
+        return None
 
     @staticmethod
     def _recommendation(best, experiments):
