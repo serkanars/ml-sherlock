@@ -49,6 +49,9 @@ Relative data, report, and SQLite paths resolve from the YAML file's directory.
 Generated reports, models, decision records, and the default MLflow database live
 under `artifacts/`. Defaults keep project files compact; see `sherlock.example.yaml`
 for the complete shape. Legacy YAML keys are temporarily migrated with a deprecation warning.
+Feature-level drift p-values use Benjamini-Hochberg false-discovery-rate correction
+by default. Configure `investigation.drift.alpha` or set `multiple_testing: none`
+when raw per-feature significance is explicitly required.
 
 The typed configuration is also available to integrations:
 

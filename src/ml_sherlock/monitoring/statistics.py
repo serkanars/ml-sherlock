@@ -10,6 +10,47 @@ from scipy.stats import chi2_contingency, ks_2samp, wasserstein_distance
 _EPSILON = 1e-6
 
 
+def adjust_p_values(
+    results: list[dict], alpha: float = 0.05, method: str = "benjamini_hochberg"
+) -> list[dict]:
+    """Return copied results with adjusted p-values and significance decisions."""
+    if not 0 < alpha < 1:
+        raise ValueError("alpha must be between 0 and 1")
+    if method not in {"benjamini_hochberg", "none"}:
+        raise ValueError(f"unsupported multiple-testing method: {method}")
+
+    adjusted_results = [dict(result) for result in results]
+    valid = []
+    for index, result in enumerate(adjusted_results):
+        p_value = result.get("p_value")
+        if p_value is None:
+            continue
+        p_value = float(p_value)
+        if not np.isfinite(p_value) or not 0 <= p_value <= 1:
+            raise ValueError(f"invalid p-value at result index {index}: {p_value}")
+        valid.append((index, p_value))
+
+    adjusted_by_index = {}
+    if method == "none":
+        adjusted_by_index = dict(valid)
+    elif valid:
+        ordered = sorted(valid, key=lambda item: item[1])
+        count = len(ordered)
+        running_minimum = 1.0
+        for rank_index in range(count - 1, -1, -1):
+            original_index, p_value = ordered[rank_index]
+            rank = rank_index + 1
+            running_minimum = min(running_minimum, p_value * count / rank)
+            adjusted_by_index[original_index] = min(1.0, running_minimum)
+
+    for index, result in enumerate(adjusted_results):
+        adjusted = adjusted_by_index.get(index)
+        result["adjusted_p_value"] = adjusted
+        result["statistically_significant"] = adjusted is not None and adjusted <= alpha
+        result["multiple_testing"] = method
+    return adjusted_results
+
+
 def missing_value_rate(values: pd.Series) -> float:
     """Return the fraction of missing observations in a series."""
     return float(values.isna().mean()) if len(values) else 0.0

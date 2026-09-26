@@ -23,6 +23,8 @@ class SherlockConfigTests(unittest.TestCase):
         )
         loaded = SherlockConfig.from_yaml(path)
         self.assertEqual(loaded.models.candidates, list(BaselineTrainer.SUPPORTED_MODELS))
+        self.assertEqual(loaded.investigation.drift.alpha, 0.05)
+        self.assertEqual(loaded.investigation.drift.multiple_testing, "benjamini_hochberg")
         self.assertEqual(loaded.data.train, path.parent / "train.csv")
         self.assertEqual(loaded.report.output, path.parent / "artifacts" / "report.html")
         self.assertEqual(
@@ -53,6 +55,28 @@ class SherlockConfigTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValidationError, "requires at least one column"):
             SherlockConfig.from_yaml(path)
+
+    def test_drift_multiple_testing_policy_is_configurable(self):
+        path = self.write_config(
+            "version: 1\ndata:\n  target: y\n  train: train.csv\n  production: prod.csv\n"
+            "investigation:\n  drift:\n    alpha: 0.1\n    multiple_testing: none\n"
+        )
+
+        loaded = SherlockConfig.from_yaml(path)
+
+        self.assertEqual(loaded.investigation.drift.alpha, 0.1)
+        self.assertEqual(loaded.investigation.drift.multiple_testing, "none")
+
+    def test_legacy_p_value_threshold_is_accepted(self):
+        path = self.write_config(
+            "version: 1\ndata:\n  target: y\n  train: train.csv\n  production: prod.csv\n"
+            "investigation:\n  drift:\n    p_value_threshold: 0.02\n"
+        )
+
+        loaded = SherlockConfig.from_yaml(path)
+
+        self.assertEqual(loaded.investigation.drift.alpha, 0.02)
+        self.assertEqual(loaded.investigation.drift.p_value_threshold, 0.02)
 
     def test_legacy_yaml_is_migrated_with_warning(self):
         path = self.write_config(

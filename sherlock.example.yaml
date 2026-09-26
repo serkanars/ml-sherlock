@@ -17,7 +17,8 @@ models:
 investigation:
   drift:
     enabled: true
-    p_value_threshold: 0.05
+    alpha: 0.05
+    multiple_testing: benjamini_hochberg
   error_analysis:
     enabled: true
     metrics: [rmse, mae, mape, r2]

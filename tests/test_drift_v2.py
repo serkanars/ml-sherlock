@@ -1,10 +1,12 @@
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
 
 from ml_sherlock.monitoring.drift import DriftAnalyzer
 from ml_sherlock.monitoring.statistics import (
+    adjust_p_values,
     categorical_drift_statistics,
     numeric_drift_statistics,
     population_stability_index_categorical,
@@ -123,6 +125,69 @@ class DriftEngineV2Tests(unittest.TestCase):
         self.assertGreater(numeric_psi, 0)
         self.assertGreater(categorical_psi, 0)
         self.assertEqual(categorical["psi"], categorical_psi)
+
+    def test_benjamini_hochberg_adjustment_matches_known_values(self):
+        results = [
+            {"feature": "a", "p_value": 0.01},
+            {"feature": "b", "p_value": 0.04},
+            {"feature": "c", "p_value": 0.03},
+            {"feature": "d", "p_value": 0.20},
+        ]
+
+        adjusted = adjust_p_values(results, alpha=0.05)
+
+        self.assertEqual([item["p_value"] for item in adjusted], [0.01, 0.04, 0.03, 0.20])
+        for actual, expected in zip(
+            [item["adjusted_p_value"] for item in adjusted],
+            [0.04, 0.05333333333333334, 0.05333333333333334, 0.20],
+        ):
+            self.assertAlmostEqual(actual, expected)
+        self.assertEqual(
+            [item["statistically_significant"] for item in adjusted],
+            [True, False, False, False],
+        )
+
+    def test_multiple_testing_can_be_disabled(self):
+        adjusted = adjust_p_values(
+            [{"feature": "a", "p_value": 0.04}, {"feature": "b", "p_value": 0.20}],
+            alpha=0.05,
+            method="none",
+        )
+
+        self.assertEqual(adjusted[0]["adjusted_p_value"], 0.04)
+        self.assertTrue(adjusted[0]["statistically_significant"])
+        self.assertEqual(adjusted[0]["multiple_testing"], "none")
+
+    def test_drift_decision_uses_configured_multiple_testing_policy(self):
+        reference = pd.DataFrame({f"x{index}": [0.0, 1.0] for index in range(10)})
+        production = reference.copy()
+
+        def measurements(series, _production):
+            candidate = series.name == "x0"
+            return {
+                "ks_statistic": 0.15 if candidate else 0.0,
+                "ks_p_value": 0.02 if candidate else 0.5,
+                "psi": 0.15 if candidate else 0.0,
+                "normalized_wasserstein_distance": 0.15 if candidate else 0.0,
+                "missingness_change": 0.0,
+            }
+
+        with patch(
+            "ml_sherlock.monitoring.drift.numeric_drift_statistics",
+            side_effect=measurements,
+        ):
+            corrected = DriftAnalyzer(multiple_testing="benjamini_hochberg").compare(
+                reference, production
+            )
+            uncorrected = DriftAnalyzer(multiple_testing="none").compare(reference, production)
+
+        self.assertEqual(corrected[0]["p_value"], 0.02)
+        self.assertAlmostEqual(corrected[0]["adjusted_p_value"], 0.2)
+        self.assertFalse(corrected[0]["statistically_significant"])
+        self.assertFalse(corrected[0]["drift"])
+        self.assertEqual(uncorrected[0]["adjusted_p_value"], 0.02)
+        self.assertTrue(uncorrected[0]["statistically_significant"])
+        self.assertTrue(uncorrected[0]["drift"])
 
 
 if __name__ == "__main__":

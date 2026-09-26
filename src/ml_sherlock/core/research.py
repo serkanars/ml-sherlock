@@ -18,12 +18,15 @@ class ResearchRunner:
                  drift_p_value_threshold=.05, candidates=None,
                  adaptation_fraction=.5, min_improvement_pct=1.0, llm: LLMConfig | None = None,
                  max_experiments=5, allowed_actions=None, drift_enabled=True,
-                 error_analysis_enabled=True, error_metrics=None, segment_config=None):
+                 error_analysis_enabled=True, error_metrics=None, segment_config=None,
+                 drift_multiple_testing="benjamini_hochberg"):
         self.target, self.metric = target, metric.lower()
         self.profiler = DataProfiler()
         self.tracker = DatasetTracker(tracking_uri, experiment_name)
         self.trainer = BaselineTrainer(random_state, candidates, self.metric)
-        self.drift = DriftAnalyzer(drift_p_value_threshold)
+        self.drift = DriftAnalyzer(
+            alpha=drift_p_value_threshold, multiple_testing=drift_multiple_testing
+        )
         self.drift_enabled = drift_enabled
         self.error_analysis_enabled = error_analysis_enabled
         self.error_metrics = error_metrics or ["rmse", "mae", "mape", "r2"]
@@ -69,6 +72,7 @@ class ResearchRunner:
             tracking_uri=config.tracking.uri,
             random_state=config.models.random_state,
             drift_p_value_threshold=config.investigation.drift.p_value_threshold,
+            drift_multiple_testing=config.investigation.drift.multiple_testing,
             candidates=list(config.models.candidates),
             metric=config.models.selection_metric,
             adaptation_fraction=config.experiments.adaptation_fraction,

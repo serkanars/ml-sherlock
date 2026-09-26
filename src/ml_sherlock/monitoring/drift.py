@@ -1,6 +1,6 @@
 import pandas as pd
 
-from .statistics import categorical_drift_statistics, numeric_drift_statistics
+from .statistics import adjust_p_values, categorical_drift_statistics, numeric_drift_statistics
 
 
 _EFFECT_THRESHOLD = 0.1
@@ -9,9 +9,14 @@ _MISSINGNESS_THRESHOLD = 0.05
 _NEW_CATEGORY_THRESHOLD = 0.01
 
 class DriftAnalyzer:
-    def __init__(self, threshold=.05, effect_threshold=_EFFECT_THRESHOLD):
-        self.threshold = threshold
+    def __init__(self, threshold=.05, effect_threshold=_EFFECT_THRESHOLD, *, alpha=None,
+                 multiple_testing="benjamini_hochberg"):
+        self.alpha = threshold if alpha is None else alpha
+        self.threshold = self.alpha
         self.effect_threshold = effect_threshold
+        if multiple_testing not in {"benjamini_hochberg", "none"}:
+            raise ValueError(f"unsupported multiple-testing method: {multiple_testing}")
+        self.multiple_testing = multiple_testing
 
     def compare(self, reference, production):
         out=[]
@@ -22,19 +27,24 @@ class DriftAnalyzer:
                 stat = measurements["ks_statistic"]
                 p = measurements["ks_p_value"]
                 test = "ks_2samp"
-                decision = self._numeric_decision(measurements)
             else:
                 measurements = categorical_drift_statistics(reference[col], production[col])
                 stat = measurements["chi2_statistic"]
                 p = measurements["chi2_p_value"]
                 test = "chi2"
-                decision = self._categorical_decision(measurements)
             out.append({"feature":col,"test":test,"statistic":stat,
-                        "p_value":p, **measurements, **decision})
-        return out
+                        "p_value":p, **measurements})
 
-    def _numeric_decision(self, measurements):
-        statistically_significant = self._is_significant(measurements["ks_p_value"])
+        adjusted = adjust_p_values(out, alpha=self.alpha, method=self.multiple_testing)
+        for result in adjusted:
+            if result["test"] == "ks_2samp":
+                decision = self._numeric_decision(result, result["statistically_significant"])
+            else:
+                decision = self._categorical_decision(result, result["statistically_significant"])
+            result.update(decision)
+        return adjusted
+
+    def _numeric_decision(self, measurements, statistically_significant):
         psi = measurements["psi"] or 0.0
         normalized_distance = measurements["normalized_wasserstein_distance"] or 0.0
         ks_statistic = measurements["ks_statistic"] or 0.0
@@ -53,8 +63,7 @@ class DriftAnalyzer:
             reasons.append("missingness_change")
         return _decision_fields(statistically_significant, max(distribution_effect, missingness_change), drift, reasons)
 
-    def _categorical_decision(self, measurements):
-        statistically_significant = self._is_significant(measurements["chi2_p_value"])
+    def _categorical_decision(self, measurements, statistically_significant):
         psi = measurements["psi"] or 0.0
         new_category_rate = measurements["new_category_rate"] or 0.0
         missingness_change = abs(measurements["missingness_change"])
@@ -80,9 +89,6 @@ class DriftAnalyzer:
         return _decision_fields(
             statistically_significant, max(psi, new_category_rate, missingness_change), drift, reasons
         )
-
-    def _is_significant(self, p_value):
-        return p_value is not None and p_value < self.threshold
 
     def diagnose(self, baseline, production, drift):
         degraded=[]

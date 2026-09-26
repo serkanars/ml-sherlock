@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Literal
 import warnings
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 import yaml
 
 
@@ -12,6 +12,7 @@ ModelName = Literal["random_forest", "extra_trees", "xgboost", "lightgbm"]
 MetricName = Literal["rmse", "mae", "mape", "r2"]
 ExperimentAction = Literal["retrain_recent_data", "drop_drifted_features", "model_search"]
 ProviderName = Literal["ollama", "openai", "openai_compatible"]
+MultipleTestingMethod = Literal["benjamini_hochberg", "none"]
 SUPPORTED_MODELS = ("random_forest", "extra_trees", "xgboost", "lightgbm")
 SUPPORTED_ACTIONS = ("retrain_recent_data", "drop_drifted_features", "model_search")
 
@@ -53,7 +54,18 @@ class ModelConfig(StrictConfig):
 
 class DriftConfig(StrictConfig):
     enabled: bool = True
-    p_value_threshold: float = Field(default=0.05, gt=0, lt=1)
+    alpha: float = Field(
+        default=0.05,
+        gt=0,
+        lt=1,
+        validation_alias=AliasChoices("alpha", "p_value_threshold"),
+    )
+    multiple_testing: MultipleTestingMethod = "benjamini_hochberg"
+
+    @property
+    def p_value_threshold(self):
+        """Deprecated compatibility alias for configurations using the old name."""
+        return self.alpha
 
 
 class ErrorAnalysisConfig(StrictConfig):
@@ -202,7 +214,7 @@ def _migrate_legacy(raw: dict) -> dict:
     research = dict(raw.get("research") or {})
     threshold = research.pop("drift_p_value_threshold", None)
     migrated["investigation"] = {
-        "drift": {} if threshold is None else {"p_value_threshold": threshold}
+        "drift": {} if threshold is None else {"alpha": threshold}
     }
     migrated["experiments"] = _remap(research, {"max_experiments": "max_iterations"})
     if project:
