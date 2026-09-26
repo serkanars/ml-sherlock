@@ -9,20 +9,25 @@ from ..models.trainer import BaselineTrainer
 from ..monitoring.drift import DriftAnalyzer
 from ..reporting.report import ReportBuilder
 from ..investigation import ExperimentRunner, ResearchEngine, ResearchLoop
-from ..config import InvestigationConfig
+from ..config import SherlockConfig
 from ..llm import LLMConfig, create_provider
 
-class AutoResearch:
+class ResearchRunner:
     def __init__(self, target, metric="rmse", experiment_name="ml-sherlock",
                  tracking_uri="sqlite:///mlflow.db", random_state=42,
                  drift_p_value_threshold=.05, candidates=None,
                  adaptation_fraction=.5, min_improvement_pct=1.0, llm: LLMConfig | None = None,
-                 max_experiments=5, allowed_actions=None):
+                 max_experiments=5, allowed_actions=None, drift_enabled=True,
+                 error_analysis_enabled=True, error_metrics=None, segment_config=None):
         self.target, self.metric = target, metric.lower()
         self.profiler = DataProfiler()
         self.tracker = DatasetTracker(tracking_uri, experiment_name)
         self.trainer = BaselineTrainer(random_state, candidates, self.metric)
         self.drift = DriftAnalyzer(drift_p_value_threshold)
+        self.drift_enabled = drift_enabled
+        self.error_analysis_enabled = error_analysis_enabled
+        self.error_metrics = error_metrics or ["rmse", "mae", "mape", "r2"]
+        self.segment_config = segment_config
         self.reporter = ReportBuilder()
         self.research_engine = ResearchEngine(planner=create_provider(llm), allowed_actions=allowed_actions)
         self.experiments = ExperimentRunner(
@@ -53,22 +58,40 @@ class AutoResearch:
 
     @classmethod
     def from_config(cls, config_path):
-        config = InvestigationConfig.from_yaml(config_path)
-        return cls(config.target, experiment_name=config.experiment_name,
-                   tracking_uri=config.tracking_uri, random_state=config.random_state,
-                   drift_p_value_threshold=config.drift_p_value_threshold,
-                   candidates=list(config.model_candidates), metric=config.selection_metric,
-                   adaptation_fraction=config.adaptation_fraction,
-                   min_improvement_pct=config.min_improvement_pct, llm=config.llm,
-                   max_experiments=config.max_experiments,
-                   allowed_actions=list(config.allowed_actions)), config
+        config = SherlockConfig.from_yaml(config_path)
+        return cls.from_typed_config(config), config
+
+    @classmethod
+    def from_typed_config(cls, config: SherlockConfig):
+        return cls(
+            config.data.target,
+            experiment_name=config.tracking.experiment,
+            tracking_uri=config.tracking.uri,
+            random_state=config.models.random_state,
+            drift_p_value_threshold=config.investigation.drift.p_value_threshold,
+            candidates=list(config.models.candidates),
+            metric=config.models.selection_metric,
+            adaptation_fraction=config.experiments.adaptation_fraction,
+            min_improvement_pct=config.experiments.min_improvement_pct,
+            llm=config.llm if config.llm.enabled else None,
+            max_experiments=config.experiments.max_iterations,
+            allowed_actions=list(config.experiments.allowed_actions),
+            drift_enabled=config.investigation.drift.enabled,
+            error_analysis_enabled=config.investigation.error_analysis.enabled,
+            error_metrics=list(config.investigation.error_analysis.metrics),
+            segment_config=config.investigation.segments,
+        )
 
     @classmethod
     def run_config(cls, config_path):
-        research, config = cls.from_config(config_path)
-        fit_result = research.fit(config.train_path)
+        if isinstance(config_path, SherlockConfig):
+            config = config_path
+            research = cls.from_typed_config(config)
+        else:
+            research, config = cls.from_config(config_path)
+        fit_result = research.fit(config.data.train)
         investigation = research.investigate(
-            config.train_path, config.production_path, config.report_path
+            config.data.train, config.data.production, config.report.output
         )
         return {"fit": fit_result, "investigation": investigation}
 
@@ -80,8 +103,12 @@ class AutoResearch:
         prod, final_evaluation = train_test_split(prod, test_size=.2, random_state=self.experiments.random_state)
         production_metrics = self.trainer.evaluate(self.model, prod, self.target)
         drift = self.drift.compare(ref.drop(columns=[self.target]),
-                                   prod.drop(columns=[self.target]))
-        diagnosis = self.drift.diagnose(self.baseline_metrics, production_metrics, drift)
+                                   prod.drop(columns=[self.target])) if self.drift_enabled else []
+        baseline_for_diagnosis = {
+            key: value for key, value in self.baseline_metrics.items()
+            if self.error_analysis_enabled and key in self.error_metrics
+        }
+        diagnosis = self.drift.diagnose(baseline_for_diagnosis, production_metrics, drift)
         self.loop.iteration_logger = lambda result, evidence: self.tracker.log_research_iteration(
             self.baseline_run_id, result, evidence
         )

@@ -1,23 +1,14 @@
 """Provider-agnostic, constrained LLM planning for ML investigations."""
 
-from dataclasses import dataclass
 import json
 import logging
 import os
 from typing import Protocol
 from urllib.request import Request, urlopen
 
+from ..config import LLMConfig
+
 logger = logging.getLogger("ml_sherlock.llm")
-
-
-@dataclass(frozen=True)
-class LLMConfig:
-    provider: str
-    model: str
-    base_url: str | None = None
-    api_key_env: str | None = None
-    temperature: float = 0.1
-    timeout_seconds: int = 60
 
 
 class LLMProvider(Protocol):

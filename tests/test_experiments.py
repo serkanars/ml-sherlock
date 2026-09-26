@@ -1,7 +1,7 @@
 import pandas as pd
 
-from autoresearch.investigation.experiments import ExperimentRunner
-from autoresearch.models.trainer import BaselineTrainer
+from ml_sherlock.investigation.experiments import ExperimentRunner
+from ml_sherlock.models.trainer import BaselineTrainer
 
 
 def test_retraining_experiment_uses_unseen_holdout():

@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Investigate why machine learning models fail in production."
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["pandas>=2.0","numpy>=1.24","scikit-learn>=1.3","xgboost>=2.0","lightgbm>=4.0","mlflow>=2.10","scipy>=1.10","jinja2>=3.1","PyYAML>=6.0","matplotlib>=3.7"]
+dependencies = ["pandas>=2.0","numpy>=1.24","scikit-learn>=1.3","xgboost>=2.0","lightgbm>=4.0","mlflow>=2.10","scipy>=1.10","jinja2>=3.1","PyYAML>=6.0","matplotlib>=3.7","pydantic>=2.7"]
 
 [project.optional-dependencies]
 openai = ["openai>=1.0"]
@@ -21,4 +21,4 @@ ml-sherlock = "ml_sherlock.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-autoresearch = ["reporting/*.html"]
+ml_sherlock = ["reporting/*.html"]

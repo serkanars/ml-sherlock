@@ -1,22 +1,16 @@
-project:
-  target: rented_bike_count
+version: 1
+
 data:
-  train_path: data/train.csv
-  production_path: data/production.csv
+  target: rented_bike_count
+  train: data/train.csv
+  production: data/production.csv
+
 tracking:
-  uri: sqlite:///examples/seoul_bike/mlflow.db
-  experiment_name: example-seoul-bike
-model:
-  random_state: 42
-  selection_metric: rmse
-  candidates: [random_forest, extra_trees, xgboost, lightgbm]
-research:
-  drift_p_value_threshold: 0.05
-  adaptation_fraction: 0.5
-  min_improvement_pct: 1.0
-  max_experiments: 6
-  allowed_actions: [retrain_recent_data, drop_drifted_features, model_search]
-llm:
-  enabled: false
+  uri: sqlite:///mlflow.db
+  experiment: example-seoul-bike
+
+experiments:
+  max_iterations: 6
+
 report:
-  output_path: output/report.html
+  output: output/report.html

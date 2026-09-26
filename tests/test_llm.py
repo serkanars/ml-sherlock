@@ -2,8 +2,8 @@ import json
 import unittest
 from unittest.mock import MagicMock, patch
 
-from autoresearch.investigation.engine import ResearchEngine
-from autoresearch.llm.providers import LLMConfig, OllamaProvider
+from ml_sherlock.investigation.engine import ResearchEngine
+from ml_sherlock.llm.providers import LLMConfig, OllamaProvider
 
 
 class OllamaPlanningTests(unittest.TestCase):
@@ -24,7 +24,7 @@ class OllamaPlanningTests(unittest.TestCase):
                     response.__enter__.return_value.read.return_value = json.dumps({
                         "message": {"content": wrapper.format(json.dumps(self.plan))}
                     }).encode()
-                    with patch("autoresearch.llm.providers.urlopen", return_value=response) as send:
+                    with patch("ml_sherlock.llm.providers.urlopen", return_value=response) as send:
                         result = provider.plan({}, [], [self.action])
                     request = send.call_args.args[0]
                     payload = json.loads(request.data)
@@ -53,7 +53,7 @@ class OllamaPlanningTests(unittest.TestCase):
             "performance_degradation": [{"metric": "rmse"}],
             "summary": "Production error increased.",
         }
-        with patch("autoresearch.llm.providers.urlopen", return_value=response):
+        with patch("ml_sherlock.llm.providers.urlopen", return_value=response):
             result = ResearchEngine(planner=provider).investigate(
                 diagnosis, [{"feature": "x", "drift": True}]
             )

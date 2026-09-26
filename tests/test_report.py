@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from autoresearch.reporting.report import ReportBuilder
+from ml_sherlock.reporting.report import ReportBuilder
 
 
 class ReportBuilderTests(unittest.TestCase):

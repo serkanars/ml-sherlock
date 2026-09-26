@@ -26,6 +26,38 @@ candidates are `random_forest`, `extra_trees`, `xgboost`, and `lightgbm`.
 The report includes research hypotheses and the next recommended experiment,
 each linked to measured evidence.
 
+Configuration is validated by a strict, versioned Pydantic model before any
+training starts:
+
+```text
+SherlockConfig
+|- DataConfig
+|- TrackingConfig
+|- ModelConfig
+|- InvestigationConfig
+|  |- DriftConfig
+|  |- ErrorAnalysisConfig
+|  `- SegmentConfig
+|- ExperimentConfig
+|- LLMConfig
+`- ReportConfig
+```
+
+Unknown keys, unsupported models/actions/metrics, invalid thresholds, and
+incomplete enabled features are rejected with their exact YAML location.
+Relative data, report, and SQLite paths resolve from the YAML file's directory.
+Defaults keep project files compact; see `sherlock.example.yaml` for the complete
+shape. Legacy YAML keys are temporarily migrated with a deprecation warning.
+
+The typed configuration is also available to integrations:
+
+```python
+from ml_sherlock import SherlockConfig
+
+config = SherlockConfig.from_yaml("sherlock.yaml")
+schema = SherlockConfig.model_json_schema()
+```
+
 Optional LLM planning is configured under `llm` in the YAML file. Ollama requires
 no additional Python package. For OpenAI or an OpenAI-compatible endpoint, install
 `pip install -e ".[openai]"` and set the API-key environment variable named by

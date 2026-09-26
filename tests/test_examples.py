@@ -1,8 +1,8 @@
 import unittest
 from pathlib import Path
 
-from autoresearch.config import InvestigationConfig
-from autoresearch.models.trainer import BaselineTrainer
+from ml_sherlock.config import SherlockConfig
+from ml_sherlock.models.trainer import BaselineTrainer
 
 
 class RealDataExampleTests(unittest.TestCase):
@@ -16,11 +16,13 @@ class RealDataExampleTests(unittest.TestCase):
         }
         for name, target in expected_targets.items():
             with self.subTest(example=name):
-                config = InvestigationConfig.from_yaml(root / "examples" / name / "sherlock.yaml")
-                self.assertEqual(config.target, target)
-                self.assertEqual(config.model_candidates, BaselineTrainer.SUPPORTED_MODELS)
-                self.assertEqual(config.train_path.name, "train.csv")
-                self.assertEqual(config.production_path.name, "production.csv")
+                config = SherlockConfig.from_yaml(root / "examples" / name / "sherlock.yaml")
+                self.assertEqual(config.data.target, target)
+                self.assertEqual(config.models.candidates, list(BaselineTrainer.SUPPORTED_MODELS))
+                self.assertEqual(config.data.train.name, "train.csv")
+                self.assertEqual(config.data.production.name, "production.csv")
+                expected_db = root / "examples" / name / "mlflow.db"
+                self.assertEqual(config.tracking.uri, f"sqlite:///{expected_db.as_posix()}")
 
 
 if __name__ == "__main__":

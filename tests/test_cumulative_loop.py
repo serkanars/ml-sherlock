@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
 
-from autoresearch.investigation.loop import ResearchLoop
+from ml_sherlock.investigation.loop import ResearchLoop
 
 
 class CumulativeLoopTests(unittest.TestCase):

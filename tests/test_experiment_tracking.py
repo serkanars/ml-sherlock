@@ -4,9 +4,9 @@ from unittest.mock import patch
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
-from autoresearch.data.tracking import DatasetTracker
-from autoresearch.investigation.experiments import ExperimentRunner
-from autoresearch.models.trainer import BaselineTrainer
+from ml_sherlock.data.tracking import DatasetTracker
+from ml_sherlock.investigation.experiments import ExperimentRunner
+from ml_sherlock.models.trainer import BaselineTrainer
 
 
 class ExperimentTrackingTests(unittest.TestCase):
@@ -18,7 +18,7 @@ class ExperimentTrackingTests(unittest.TestCase):
             "name": "train", "source": "train.csv", "context": "training",
             "digest": "digest", "rows": 10, "columns": 3,
         }
-        with patch("autoresearch.data.tracking.mlflow") as mlflow:
+        with patch("ml_sherlock.data.tracking.mlflow") as mlflow:
             run = mlflow.start_run.return_value.__enter__.return_value
             run.info.run_id = "run-id"
             run_id = tracker.log_run(
@@ -33,7 +33,7 @@ class ExperimentTrackingTests(unittest.TestCase):
                     "deployment_status": "review_candidate",
                     "final_baseline_metrics": {"rmse": 10},
                     "final_candidate_metrics": {"rmse": 8}}
-        with patch("autoresearch.data.tracking.mlflow") as mlflow:
+        with patch("ml_sherlock.data.tracking.mlflow") as mlflow:
             tracker.log_final_report("deleted-parent", decision, "report.html", "model.joblib", "decision.json")
             mlflow.start_run.assert_called_once_with(run_name="research-final-report")
             self.assertEqual(mlflow.set_tags.call_args.args[0]["ml_sherlock.parent_run_id"], "deleted-parent")
@@ -72,7 +72,7 @@ class ExperimentTrackingTests(unittest.TestCase):
 
                 result.update(iteration=1, training_seed=1, planner={"action": action})
                 tracker = DatasetTracker.__new__(DatasetTracker)
-                with patch("autoresearch.data.tracking.mlflow") as mlflow:
+                with patch("ml_sherlock.data.tracking.mlflow") as mlflow:
                     tracker.log_research_iteration("parent", result, [])
                     metrics = mlflow.log_metrics.call_args.args[0]
                     self.assertAlmostEqual(metrics["holdout_candidate_rmse"], actual["rmse"])
