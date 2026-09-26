@@ -6,7 +6,7 @@ from sklearn.model_selection import train_test_split
 from ..data.profiler import DataProfiler
 from ..data.tracking import DatasetTracker
 from ..models.trainer import BaselineTrainer
-from ..monitoring.drift import DriftAnalyzer
+from ..monitoring.drift import DriftAnalyzer, PredictionDriftAnalyzer, TargetDriftAnalyzer
 from ..reporting.report import ReportBuilder
 from ..investigation import ExperimentRunner, ResearchEngine, ResearchLoop
 from ..config import SherlockConfig
@@ -25,6 +25,12 @@ class ResearchRunner:
         self.tracker = DatasetTracker(tracking_uri, experiment_name)
         self.trainer = BaselineTrainer(random_state, candidates, self.metric)
         self.drift = DriftAnalyzer(
+            alpha=drift_p_value_threshold, multiple_testing=drift_multiple_testing
+        )
+        self.target_drift = TargetDriftAnalyzer(
+            alpha=drift_p_value_threshold, multiple_testing=drift_multiple_testing
+        )
+        self.prediction_drift = PredictionDriftAnalyzer(
             alpha=drift_p_value_threshold, multiple_testing=drift_multiple_testing
         )
         self.drift_enabled = drift_enabled
@@ -106,6 +112,12 @@ class ResearchRunner:
         ref, prod = pd.read_csv(reference_path), pd.read_csv(production_path)
         prod, final_evaluation = train_test_split(prod, test_size=.2, random_state=self.experiments.random_state)
         production_metrics = self.trainer.evaluate(self.model, prod, self.target)
+        target_drift = self.target_drift.analyze(ref[self.target], prod[self.target], self.target)
+        prediction_drift = self.prediction_drift.analyze(
+            self.model,
+            ref.drop(columns=[self.target]),
+            prod.drop(columns=[self.target]),
+        )
         drift = self.drift.compare(ref.drop(columns=[self.target]),
                                    prod.drop(columns=[self.target])) if self.drift_enabled else []
         baseline_for_diagnosis = {
@@ -145,5 +157,9 @@ class ResearchRunner:
                                      self.baseline_metrics, production_metrics,
                                      drift, diagnosis, research)
         self.tracker.log_final_report(self.baseline_run_id, decision, report, model_path, decision_path)
+        target_evidence = target_drift.to_dict()
+        prediction_evidence = prediction_drift.to_dict()
         return {"production_metrics": production_metrics, "drift": drift,
+                "target_drift": target_evidence, "prediction_drift": prediction_evidence,
+                "evidence": [target_evidence, prediction_evidence],
                 "diagnosis": diagnosis, "research": research, "report": report}

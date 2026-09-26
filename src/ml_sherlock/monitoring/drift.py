@@ -1,5 +1,6 @@
 import pandas as pd
 
+from ..evidence import Evidence, make_evidence_id
 from .statistics import adjust_p_values, categorical_drift_statistics, numeric_drift_statistics
 
 
@@ -106,6 +107,69 @@ class DriftAnalyzer:
                 "summary":f"{len(degraded)} metrics degraded; {len(drifted)} features drifted."}
 
 
+class TargetDriftAnalyzer:
+    """Compare reference and production regression-target distributions."""
+
+    def __init__(self, alpha=0.05, multiple_testing="benjamini_hochberg",
+                 effect_threshold=_EFFECT_THRESHOLD):
+        self.distribution = DriftAnalyzer(
+            alpha=alpha,
+            multiple_testing=multiple_testing,
+            effect_threshold=effect_threshold,
+        )
+
+    def analyze(self, reference, production, target_name="target"):
+        reference_values = _as_numeric_series(reference, target_name)
+        production_values = _as_numeric_series(production, target_name)
+        result = self.distribution.compare(
+            reference_values.to_frame(), production_values.to_frame()
+        )[0]
+        return _distribution_evidence(
+            "target_drift",
+            result,
+            reference_values,
+            production_values,
+            feature=target_name,
+            threshold=self.distribution.effect_threshold,
+        )
+
+    def compare(self, reference, production, target_name="target"):
+        return self.analyze(reference, production, target_name)
+
+
+class PredictionDriftAnalyzer:
+    """Compare a regression model's reference and production predictions."""
+
+    def __init__(self, alpha=0.05, multiple_testing="benjamini_hochberg",
+                 effect_threshold=_EFFECT_THRESHOLD):
+        self.distribution = DriftAnalyzer(
+            alpha=alpha,
+            multiple_testing=multiple_testing,
+            effect_threshold=effect_threshold,
+        )
+
+    def analyze(self, model, reference_features, production_features):
+        reference_predictions = _as_numeric_series(
+            model.predict(reference_features), "prediction"
+        )
+        production_predictions = _as_numeric_series(
+            model.predict(production_features), "prediction"
+        )
+        result = self.distribution.compare(
+            reference_predictions.to_frame(), production_predictions.to_frame()
+        )[0]
+        return _distribution_evidence(
+            "prediction_drift",
+            result,
+            reference_predictions,
+            production_predictions,
+            threshold=self.distribution.effect_threshold,
+        )
+
+    def compare(self, model, reference_features, production_features):
+        return self.analyze(model, reference_features, production_features)
+
+
 def _decision_fields(statistically_significant, effect_size, drift, reasons):
     if effect_size < _EFFECT_THRESHOLD:
         magnitude = "negligible"
@@ -136,3 +200,40 @@ def _decision_fields(statistically_significant, effect_size, drift, reasons):
         "severity": severity,
         "decision_reasons": reasons,
     }
+
+
+def _as_numeric_series(values, name):
+    series = values if isinstance(values, pd.Series) else pd.Series(values)
+    if series.ndim != 1:
+        raise ValueError(f"{name} drift analysis requires one-dimensional values")
+    numeric = pd.to_numeric(series, errors="raise").rename(name)
+    return numeric.reset_index(drop=True)
+
+
+def _distribution_evidence(
+    evidence_type, result, reference, production, feature=None, threshold=_EFFECT_THRESHOLD
+):
+    mean_change = result.get("mean_change_pct")
+    if mean_change is None:
+        direction = None
+    elif mean_change > 0:
+        direction = "increased"
+    elif mean_change < 0:
+        direction = "decreased"
+    else:
+        direction = "stable"
+    return Evidence(
+        id=make_evidence_id(
+            evidence_type, "distribution_effect_size", feature=feature
+        ),
+        type=evidence_type,
+        metric="distribution_effect_size",
+        value=result["effect_size"],
+        feature=feature,
+        threshold=threshold,
+        severity=result["severity"],
+        direction=direction,
+        sample_size_reference=int(reference.notna().sum()),
+        sample_size_production=int(production.notna().sum()),
+        metadata=result,
+    )
