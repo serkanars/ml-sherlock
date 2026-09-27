@@ -50,6 +50,80 @@ class ExperimentTrackingTests(unittest.TestCase):
             self.assertEqual(mlflow.set_tags.call_args.args[0]["ml_sherlock.parent_run_id"], "deleted-parent")
             self.assertGreaterEqual(mlflow.log_artifact.call_count, 3)
 
+    def test_final_report_persists_investigation_artifacts_metrics_and_lineage(self):
+        tracker = DatasetTracker.__new__(DatasetTracker)
+        decision = {
+            "model": "lightgbm", "iteration": 2,
+            "deployment_status": "review_candidate",
+            "training_data": {"reference_path": "reference.csv"},
+            "model_path": "model.joblib",
+        }
+        evidence = [
+            {
+                "id": "feature-x", "type": "feature_drift", "value": .7,
+                "severity": "high", "metadata": {"drift": True},
+            },
+            {
+                "id": "feature-stable", "type": "feature_drift", "value": .01,
+                "severity": "info", "metadata": {"drift": False},
+            },
+            {
+                "id": "segment-c", "type": "segment_degradation", "value": 120,
+                "severity": "critical", "metadata": {},
+            },
+            {
+                "id": "residual", "type": "residual_drift", "value": .55,
+                "severity": "high", "metadata": {"drift": True},
+            },
+        ]
+        diagnosis = {"status": "degraded", "patterns": [{"id": "diagnosis-1"}]}
+        hypotheses = [{
+            "id": "covariate_shift", "evidence_ids": ["feature-x"],
+            "recommended_experiment": "retrain_recent_data",
+        }]
+        experiments = [{
+            "iteration": 2, "hypothesis_id": "covariate_shift",
+            "mlflow_run_id": "iteration-run", "action": "retrain_recent_data",
+            "status": "validated",
+        }]
+        dataset = {"name": "reference", "digest": "dataset-digest"}
+
+        with patch("ml_sherlock.data.tracking.mlflow") as mlflow:
+            tracker.log_final_report(
+                "baseline-run", decision, "report.html", "model.joblib", "decision.json",
+                evidence=evidence, diagnosis=diagnosis, hypotheses=hypotheses,
+                experiments=experiments, dataset=dataset,
+            )
+
+        artifacts = {call.args[1]: call.args[0] for call in mlflow.log_dict.call_args_list}
+        self.assertEqual(
+            set(artifacts),
+            {
+                "research/evidence.json", "research/diagnosis.json",
+                "research/hypotheses.json", "research/lineage.json",
+            },
+        )
+        self.assertEqual(artifacts["research/evidence.json"]["evidence"], evidence)
+        self.assertEqual(artifacts["research/diagnosis.json"], diagnosis)
+        lineage = artifacts["research/lineage.json"]
+        self.assertEqual(lineage["dataset"]["digest"], "dataset-digest")
+        self.assertEqual(lineage["baseline_model"]["mlflow_run_id"], "baseline-run")
+        self.assertEqual(lineage["hypotheses"][0]["evidence_ids"], ["feature-x"])
+        self.assertEqual(lineage["experiments"][0]["mlflow_run_id"], "iteration-run")
+        self.assertEqual(lineage["decision"]["iteration"], 2)
+
+        summary = next(
+            call.args[0] for call in mlflow.log_metrics.call_args_list
+            if "evidence_count" in call.args[0]
+        )
+        self.assertEqual(summary, {
+            "drifted_feature_count": 1.0,
+            "severe_drift_count": 2.0,
+            "degraded_segment_count": 1.0,
+            "evidence_count": 4.0,
+            "residual_shift_score": .55,
+        })
+
     @classmethod
     def setUpClass(cls):
         cls.reference = pd.DataFrame({

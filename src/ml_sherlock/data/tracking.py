@@ -83,11 +83,19 @@ class DatasetTracker:
             )
             return run.info.run_id
 
-    def log_final_report(self, parent_run_id, decision, report, model_path, decision_path):
+    def log_final_report(self, parent_run_id, decision, report, model_path, decision_path,
+                         *, evidence=None, diagnosis=None, hypotheses=None,
+                         experiments=None, dataset=None):
+        evidence = list(evidence or [])
+        diagnosis = dict(diagnosis or {})
+        hypotheses = list(hypotheses or [])
+        experiments = list(experiments or [])
+        dataset = dict(dataset or {})
         with mlflow.start_run(run_name="research-final-report") as run:
             mlflow.set_tags({
                 "ml_sherlock.run_type": "research_final_report",
                 "ml_sherlock.parent_run_id": parent_run_id,
+                "ml_sherlock.baseline_run_id": parent_run_id,
                 "ml_sherlock.final_model": decision["model"],
                 "ml_sherlock.final_iteration": decision["iteration"],
                 "ml_sherlock.deployment_status": decision["deployment_status"],
@@ -95,6 +103,35 @@ class DatasetTracker:
             for prefix, values in (("final_baseline", decision.get("final_baseline_metrics", {})),
                                    ("final_candidate", decision.get("final_candidate_metrics", {}))):
                 mlflow.log_metrics({f"{prefix}_{key}": value for key, value in values.items() if value is not None})
+            summary_metrics = _investigation_summary_metrics(evidence)
+            if summary_metrics:
+                mlflow.log_metrics(summary_metrics)
+            mlflow.log_dict(
+                {
+                    "baseline_run_id": parent_run_id,
+                    "evidence": evidence,
+                },
+                "research/evidence.json",
+            )
+            mlflow.log_dict(diagnosis, "research/diagnosis.json")
+            mlflow.log_dict(
+                {
+                    "baseline_run_id": parent_run_id,
+                    "hypotheses": hypotheses,
+                },
+                "research/hypotheses.json",
+            )
+            mlflow.log_dict(
+                _investigation_lineage(
+                    parent_run_id,
+                    dataset,
+                    decision,
+                    evidence,
+                    hypotheses,
+                    experiments,
+                ),
+                "research/lineage.json",
+            )
             artifact_paths = [Path(report), Path(model_path), Path(decision_path)]
             report_data = Path(report).with_suffix(".report-data.json")
             if report_data.is_file():
@@ -102,3 +139,82 @@ class DatasetTracker:
             for path in artifact_paths:
                 mlflow.log_artifact(str(path), "decision")
             return run.info.run_id
+
+
+def _investigation_summary_metrics(evidence):
+    feature_drift = [
+        item for item in evidence
+        if item.get("type") == "feature_drift" and _active_evidence(item)
+    ]
+    severe_drift = [
+        item for item in evidence
+        if item.get("type") in {
+            "feature_drift", "target_drift", "prediction_drift", "residual_drift"
+        }
+        and _active_evidence(item)
+        and item.get("severity") in {"high", "critical"}
+    ]
+    degraded_segments = [
+        item for item in evidence
+        if item.get("type") == "segment_degradation" and _active_evidence(item)
+    ]
+    residual_scores = [
+        abs(float(item["value"]))
+        for item in evidence
+        if item.get("type") == "residual_drift"
+        and isinstance(item.get("value"), (int, float))
+    ]
+    metrics = {
+        "drifted_feature_count": float(len(feature_drift)),
+        "severe_drift_count": float(len(severe_drift)),
+        "degraded_segment_count": float(len(degraded_segments)),
+        "evidence_count": float(len(evidence)),
+    }
+    if residual_scores:
+        metrics["residual_shift_score"] = max(residual_scores)
+    return metrics
+
+
+def _active_evidence(evidence):
+    metadata = evidence.get("metadata") or {}
+    measured_drift = metadata.get("drift")
+    if measured_drift is False:
+        return False
+    return measured_drift is True or evidence.get("severity") != "info"
+
+
+def _investigation_lineage(parent_run_id, dataset, decision, evidence, hypotheses, experiments):
+    return {
+        "dataset": {
+            **dataset,
+            "training_data": decision.get("training_data", {}),
+        },
+        "baseline_model": {
+            "mlflow_run_id": parent_run_id,
+        },
+        "evidence_ids": [item.get("id") for item in evidence if item.get("id")],
+        "hypotheses": [
+            {
+                "id": item.get("id"),
+                "evidence_ids": item.get("evidence_ids", []),
+                "recommended_experiment": item.get("recommended_experiment"),
+            }
+            for item in hypotheses
+        ],
+        "experiments": [
+            {
+                "iteration": item.get("iteration"),
+                "hypothesis_id": item.get("hypothesis_id"),
+                "mlflow_run_id": item.get("mlflow_run_id"),
+                "action": item.get("action"),
+                "status": item.get("status"),
+            }
+            for item in experiments
+        ],
+        "decision": {
+            "model": decision.get("model"),
+            "iteration": decision.get("iteration"),
+            "deployment_status": decision.get("deployment_status"),
+            "model_path": decision.get("model_path"),
+        },
+    }

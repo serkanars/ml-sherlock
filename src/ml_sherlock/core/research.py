@@ -61,6 +61,7 @@ class ResearchRunner:
         self.baseline_metrics = None
         self.baseline_candidates = []
         self.baseline_run_id = None
+        self.baseline_dataset = None
 
     def fit(self, train_path):
         train = pd.read_csv(train_path)
@@ -75,6 +76,7 @@ class ResearchRunner:
         run_id = self.tracker.log_run(dataset, result.metrics, result.params,
                                       result.model, profile, self.baseline_candidates)
         self.baseline_run_id = run_id
+        self.baseline_dataset = dataset
         return {"run_id": run_id, "metrics": result.metrics, "dataset": dataset,
                 "candidates": self.baseline_candidates}
 
@@ -215,7 +217,18 @@ class ResearchRunner:
                                      evidence=evidence_store.all(),
                                      ranked_evidence=ranked_evidence,
                                      segment_analysis=segment_analysis)
-        self.tracker.log_final_report(self.baseline_run_id, decision, report, model_path, decision_path)
+        self.tracker.log_final_report(
+            self.baseline_run_id,
+            decision,
+            report,
+            model_path,
+            decision_path,
+            evidence=evidence_store.to_dict(),
+            diagnosis=diagnosis,
+            hypotheses=research.get("hypotheses", []),
+            experiments=research.get("experiments", []),
+            dataset=getattr(self, "baseline_dataset", None),
+        )
         target_evidence = target_drift.to_dict()
         prediction_evidence = prediction_drift.to_dict()
         serialized_segment_analysis = None
