@@ -5,6 +5,7 @@ from unittest.mock import Mock
 import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
 
+from ml_sherlock.evidence import Evidence
 from ml_sherlock.investigation.loop import ResearchLoop
 
 
@@ -84,3 +85,73 @@ class CumulativeLoopTests(unittest.TestCase):
         self.assertIs(result["_champion"], candidate)
         pd.testing.assert_frame_equal(runner.run_action.call_args.args[2], development)
         pd.testing.assert_frame_equal(runner.trainer.evaluate.call_args_list[1].args[1], final)
+
+    def test_llm_cannot_execute_an_action_outside_allowed_actions(self):
+        baseline = SimpleNamespace(
+            named_steps={"model": RandomForestRegressor(random_state=0)}
+        )
+        runner = Mock()
+        runner.selection_metric = "rmse"
+        runner.trainer.model_name.return_value = "random_forest"
+        engine = Mock()
+        engine.investigate.return_value = {
+            "llm_plan": {"action": "execute_python", "source": "llm"}
+        }
+        data = pd.DataFrame({"x": [1, 2], "target": [3, 4]})
+
+        result = ResearchLoop(
+            engine, runner, max_experiments=1,
+            allowed_actions=["retrain_recent_data"],
+        ).run(data, data, "target", baseline, {}, [])
+
+        runner.run_action.assert_not_called()
+        self.assertEqual(result["history"][0]["reason"], "disallowed_action")
+        self.assertEqual(result["experiments"], [])
+
+    def test_hypothesis_evidence_is_forwarded_to_evidence_driven_action(self):
+        baseline = SimpleNamespace(
+            named_steps={"model": RandomForestRegressor(random_state=0)}
+        )
+        candidate = SimpleNamespace(
+            named_steps={"model": RandomForestRegressor(random_state=1)}
+        )
+        evidence = Evidence(
+            id="segment-b", type="segment_degradation",
+            metric="rmse_degradation_pct", value=80.0,
+            feature="group", segment="group=b",
+            metadata={"definition": {"category": "b"}},
+        )
+        runner = Mock()
+        runner.selection_metric = "rmse"
+        runner.trainer.model_name.return_value = "random_forest"
+        runner.run_action.return_value = self.result(
+            candidate, "rejected", ["x", "group"], -1, 10.1
+        )
+        engine = Mock()
+        engine.investigate.return_value = {
+            "llm_plan": {
+                "action": "segment_retraining",
+                "hypothesis_id": "segment_specific_degradation",
+            },
+            "hypotheses": [{
+                "id": "segment_specific_degradation",
+                "recommended_experiment": "segment_retraining",
+                "evidence_ids": [evidence.id],
+            }],
+        }
+        data = pd.DataFrame({
+            "x": [1, 2], "group": ["a", "b"], "target": [3, 4]
+        })
+
+        ResearchLoop(
+            engine, runner, max_experiments=1,
+            allowed_actions=["segment_retraining"],
+        ).run(
+            data, data, "target", baseline, {}, [],
+            diagnoses=[], ranked_evidence=[evidence],
+        )
+
+        kwargs = runner.run_action.call_args.kwargs
+        self.assertEqual(kwargs["hypothesis_id"], "segment_specific_degradation")
+        self.assertEqual(kwargs["evidence_ids"], [evidence.id])
+        self.assertEqual(kwargs["evidence"], [evidence])

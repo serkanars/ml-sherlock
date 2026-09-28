@@ -40,9 +40,9 @@ class HypothesisEngine:
             "type": "covariate_shift",
             "claim": (
                 "Measured feature drift is associated with performance degradation; "
-                "testing adaptation to representative recent data is warranted."
+                "testing bounded evidence-linked feature subsets is warranted."
             ),
-            "experiment": "retrain_recent_data",
+            "experiment": "feature_subset_search",
         },
         "performance_degradation_concentrated_in_segments": {
             "type": "segment_specific_degradation",
@@ -50,7 +50,7 @@ class HypothesisEngine:
                 "Measured degradation is concentrated in identified segments; a "
                 "segment-aware validation experiment is warranted."
             ),
-            "experiment": "retrain_recent_data",
+            "experiment": "segment_retraining",
         },
         "performance_degradation_with_target_drift": {
             "type": "target_relationship_shift",
@@ -58,7 +58,7 @@ class HypothesisEngine:
                 "Target drift is observed alongside performance degradation; testing "
                 "with representative recent labels is warranted."
             ),
-            "experiment": "retrain_recent_data",
+            "experiment": "recent_window_retraining",
         },
         "performance_degradation_with_residual_drift": {
             "type": "model_family_robustness",

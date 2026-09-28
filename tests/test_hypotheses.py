@@ -39,7 +39,7 @@ class HypothesisEngineTests(unittest.TestCase):
         self.assertEqual(hypothesis.evidence_ids, [evidence.id])
         self.assertIsNone(hypothesis.confidence)
         self.assertTrue(hypothesis.testable)
-        self.assertEqual(hypothesis.recommended_experiment, "retrain_recent_data")
+        self.assertEqual(hypothesis.recommended_experiment, "feature_subset_search")
 
     def test_hypotheses_follow_ranked_evidence_order(self):
         first = _evidence("rank-1", "feature_drift", feature="x")
@@ -108,6 +108,10 @@ class HypothesisEngineTests(unittest.TestCase):
             ["target_relationship_shift", "segment_specific_degradation"],
         )
         self.assertTrue(all(item.testable for item in hypotheses))
+        self.assertEqual(
+            [item.recommended_experiment for item in hypotheses],
+            ["recent_window_retraining", "segment_retraining"],
+        )
 
     def test_research_engine_serializes_typed_traceable_hypothesis(self):
         evidence = _evidence("feature-1", "feature_drift", feature="income")
@@ -131,11 +135,11 @@ class HypothesisEngineTests(unittest.TestCase):
         self.assertEqual(result["hypotheses"][0]["evidence_ids"], [evidence.id])
         self.assertEqual(
             result["hypotheses"][0]["recommended_experiment"],
-            "retrain_recent_data",
+            "feature_subset_search",
         )
         self.assertEqual(
             result["recommended_next_experiment"]["name"],
-            "recent_data_retraining",
+            "feature_subset_search",
         )
 
     def test_research_loop_consumes_typed_recommended_experiment(self):

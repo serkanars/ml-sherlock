@@ -83,8 +83,15 @@ class ExperimentTrackingTests(unittest.TestCase):
         }]
         experiments = [{
             "iteration": 2, "hypothesis_id": "covariate_shift",
+            "evidence_ids": ["feature-x"],
             "mlflow_run_id": "iteration-run", "action": "retrain_recent_data",
             "status": "validated",
+            "dataset_rows_used": {"total_training": 120},
+            "used_features": ["x"],
+            "candidate_model": "lightgbm",
+            "evaluation_metrics": {"candidate": {"rmse": 8.0}},
+            "improvement_pct": 20.0,
+            "random_seed": 44,
         }]
         dataset = {"name": "reference", "digest": "dataset-digest"}
 
@@ -110,6 +117,9 @@ class ExperimentTrackingTests(unittest.TestCase):
         self.assertEqual(lineage["baseline_model"]["mlflow_run_id"], "baseline-run")
         self.assertEqual(lineage["hypotheses"][0]["evidence_ids"], ["feature-x"])
         self.assertEqual(lineage["experiments"][0]["mlflow_run_id"], "iteration-run")
+        self.assertEqual(lineage["experiments"][0]["evidence_ids"], ["feature-x"])
+        self.assertEqual(lineage["experiments"][0]["dataset_rows_used"]["total_training"], 120)
+        self.assertEqual(lineage["experiments"][0]["random_seed"], 44)
         self.assertEqual(lineage["decision"]["iteration"], 2)
 
         summary = next(

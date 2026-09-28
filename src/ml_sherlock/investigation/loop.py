@@ -2,6 +2,8 @@
 
 import logging
 
+from ..config import SUPPORTED_ACTIONS
+
 logger = logging.getLogger("ml_sherlock.research")
 
 
@@ -11,7 +13,7 @@ class ResearchLoop:
         self.research_engine = research_engine
         self.experiment_runner = experiment_runner
         self.max_experiments = max_experiments
-        self.allowed_actions = allowed_actions or ["retrain_recent_data", "drop_drifted_features", "model_search"]
+        self.allowed_actions = allowed_actions or list(SUPPORTED_ACTIONS)
         self.random_state = random_state
         self.iteration_logger = iteration_logger
 
@@ -44,9 +46,23 @@ class ResearchLoop:
             # without moving the evaluation goalposts.
             self.experiment_runner.random_state = self.random_state
             self.experiment_runner.trainer.random_state = self.random_state + iteration
+            hypothesis_id, evidence_ids = self._hypothesis_context(
+                last_research, plan, action
+            )
+            evidence_by_id = {
+                item.id if hasattr(item, "id") else item.get("id"): item
+                for item in (ranked_evidence or [])
+            }
+            supporting_evidence = [
+                evidence_by_id[item_id] for item_id in evidence_ids
+                if item_id in evidence_by_id
+            ]
             result = self.experiment_runner.run_action(
                 action, reference[active_features + [target]], production[active_features + [target]], target, champion,
                 [item["feature"] for item in drift if item["drift"] and item["feature"] in active_features],
+                hypothesis_id=hypothesis_id,
+                evidence_ids=evidence_ids,
+                evidence=supporting_evidence,
             )
             result["parent_iteration"] = champion_iteration
             if result["status"] == "validated":
@@ -57,10 +73,10 @@ class ResearchLoop:
             result["champion_iteration"] = champion_iteration
             result["iteration"] = iteration
             result["training_seed"] = self.experiment_runner.trainer.random_state
+            result.setdefault("random_seed", self.experiment_runner.trainer.random_state)
             result["planner"] = plan
-            result["hypothesis_id"] = plan.get("hypothesis_id") or self._hypothesis_for_action(
-                last_research, action
-            )
+            result.setdefault("hypothesis_id", hypothesis_id)
+            result.setdefault("evidence_ids", evidence_ids)
             result["drifted_features"] = [item["feature"] for item in drift if item["drift"]]
             if self.iteration_logger:
                 result["mlflow_run_id"] = self.iteration_logger(result, drift)
@@ -134,7 +150,7 @@ class ResearchLoop:
         recommended_action = first_hypothesis.get("recommended_experiment")
         if recommended_action is None and next_experiment == "recent_data_retraining":
             recommended_action = "retrain_recent_data"
-        allowed = allowed_actions or ["retrain_recent_data", "drop_drifted_features", "model_search"]
+        allowed = allowed_actions or list(SUPPORTED_ACTIONS)
         if recommended_action not in allowed:
             return {
                 "action": "stop",
@@ -147,8 +163,11 @@ class ResearchLoop:
         if not drifted:
             drifted = first_hypothesis.get("evidence", {}).get("drifted_features", [])
         preferred = [recommended_action]
-        if recommended_action == "retrain_recent_data":
+        if recommended_action in {"retrain_recent_data", "recent_window_retraining"}:
+            preferred.append("retrain_recent_data")
             preferred.append("model_search")
+        if recommended_action == "feature_subset_search":
+            preferred.append("drop_drifted_features")
         if drifted:
             preferred.append("drop_drifted_features")
         preferred = list(dict.fromkeys(action for action in preferred if action in allowed))
@@ -166,6 +185,9 @@ class ResearchLoop:
             "retrain_recent_data": "Representative recent labels may adapt the model to the observed shift.",
             "model_search": "A different model family may generalize better under the observed shift.",
             "drop_drifted_features": "Removing unstable inputs may improve robustness if they no longer generalize.",
+            "segment_retraining": "Adaptation focused on the measured degraded segment may improve holdout performance.",
+            "recent_window_retraining": "The latest labelled window may better represent the observed target shift.",
+            "feature_subset_search": "A bounded search of evidence-linked feature subsets may improve robustness.",
         }
         return {
             "action": action,
@@ -192,6 +214,20 @@ class ResearchLoop:
             if hypothesis.get("recommended_experiment") == action:
                 return hypothesis.get("id")
         return None
+
+    @classmethod
+    def _hypothesis_context(cls, research, plan, action):
+        hypothesis_id = plan.get("hypothesis_id") or cls._hypothesis_for_action(
+            research, action
+        )
+        hypothesis = next(
+            (
+                item for item in research.get("hypotheses", [])
+                if item.get("id") == hypothesis_id
+            ),
+            None,
+        )
+        return hypothesis_id, list((hypothesis or {}).get("evidence_ids", []))
 
     @staticmethod
     def _recommendation(best, experiments):

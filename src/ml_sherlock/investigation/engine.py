@@ -2,6 +2,7 @@
 
 import logging
 
+from ..config import SUPPORTED_ACTIONS
 from ..evidence import Evidence, make_evidence_id
 from .diagnosis import Diagnosis
 from .hypotheses import HypothesisEngine
@@ -12,11 +13,7 @@ logger = logging.getLogger("ml_sherlock.research")
 class ResearchEngine:
     def __init__(self, planner=None, allowed_actions=None, hypothesis_engine=None):
         self.planner = planner
-        self.allowed_actions = allowed_actions or [
-            "retrain_recent_data",
-            "drop_drifted_features",
-            "model_search",
-        ]
+        self.allowed_actions = allowed_actions or list(SUPPORTED_ACTIONS)
         self.hypothesis_engine = hypothesis_engine or HypothesisEngine()
 
     def investigate(
@@ -115,6 +112,21 @@ def _experiment(name):
             "name": "model_search",
             "goal": "Compare supported model families on the same fixed holdout.",
             "success_criterion": "Improve the selected metric versus the current champion.",
+        },
+        "segment_retraining": {
+            "name": "segment_retraining",
+            "goal": "Test adaptation using rows from the strongest evidenced degraded segment.",
+            "success_criterion": "Improve the selected metric on the same fixed holdout.",
+        },
+        "recent_window_retraining": {
+            "name": "recent_window_retraining",
+            "goal": "Test training only on the latest labelled adaptation window.",
+            "success_criterion": "Improve the selected metric on the same fixed holdout.",
+        },
+        "feature_subset_search": {
+            "name": "feature_subset_search",
+            "goal": "Compare a bounded set of evidence-derived feature subsets.",
+            "success_criterion": "Improve the selected metric on the same fixed holdout.",
         },
         "drift_watch": {
             "name": "drift_watch",

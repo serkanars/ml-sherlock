@@ -5,7 +5,7 @@ import warnings
 
 from pydantic import ValidationError
 
-from ml_sherlock.config import SherlockConfig
+from ml_sherlock.config import SUPPORTED_ACTIONS, SherlockConfig
 from ml_sherlock.models.trainer import BaselineTrainer
 
 
@@ -23,6 +23,7 @@ class SherlockConfigTests(unittest.TestCase):
         )
         loaded = SherlockConfig.from_yaml(path)
         self.assertEqual(loaded.models.candidates, list(BaselineTrainer.SUPPORTED_MODELS))
+        self.assertEqual(loaded.experiments.allowed_actions, list(SUPPORTED_ACTIONS))
         self.assertEqual(loaded.investigation.drift.alpha, 0.05)
         self.assertEqual(loaded.investigation.drift.multiple_testing, "benjamini_hochberg")
         self.assertEqual(loaded.data.train, path.parent / "train.csv")

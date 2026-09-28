@@ -63,6 +63,8 @@ class DatasetTracker:
                 "iteration": result["iteration"], "action": result["action"],
                 "training_seed": result["training_seed"], "selected_model": result["candidate_model"],
                 "recommended_model": result["recommended_model"],
+                "hypothesis_id": result.get("hypothesis_id") or "unlinked",
+                "evidence_count": len(result.get("evidence_ids", [])),
                 "parent_iteration": result.get("parent_iteration", 0),
                 "champion_iteration": result.get("champion_iteration", 0),
                 "feature_count": len(result["used_features"]),
@@ -75,7 +77,13 @@ class DatasetTracker:
             mlflow.log_metrics(metrics)
             mlflow.log_dict(result["planner"], "research/plan.json")
             mlflow.log_dict({"candidates": result["candidates"]}, "research/candidates.json")
-            mlflow.log_dict({"drift": drift, "used_features": result["used_features"]}, "research/evidence.json")
+            mlflow.log_dict({
+                "drift": drift,
+                "evidence_ids": result.get("evidence_ids", []),
+                "used_features": result["used_features"],
+                "dataset_rows_used": result.get("dataset_rows_used", {}),
+                "random_seed": result.get("random_seed", result["training_seed"]),
+            }, "research/evidence.json")
             mlflow.log_dict(result["feature_importance"], "explainability/feature_importance.json")
             mlflow.sklearn.log_model(
                 result["_model"], "model",
@@ -205,9 +213,16 @@ def _investigation_lineage(parent_run_id, dataset, decision, evidence, hypothese
             {
                 "iteration": item.get("iteration"),
                 "hypothesis_id": item.get("hypothesis_id"),
+                "evidence_ids": item.get("evidence_ids", []),
                 "mlflow_run_id": item.get("mlflow_run_id"),
                 "action": item.get("action"),
                 "status": item.get("status"),
+                "dataset_rows_used": item.get("dataset_rows_used", {}),
+                "used_features": item.get("used_features", []),
+                "model": item.get("candidate_model"),
+                "evaluation_metrics": item.get("evaluation_metrics", {}),
+                "improvement_pct": item.get("improvement_pct"),
+                "random_seed": item.get("random_seed", item.get("training_seed")),
             }
             for item in experiments
         ],

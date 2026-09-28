@@ -59,4 +59,4 @@ class OllamaPlanningTests(unittest.TestCase):
             )
         self.assertIn("llm_plan_error", result)
         self.assertNotIn("llm_plan", result)
-        self.assertEqual(result["recommended_next_experiment"]["name"], "recent_data_retraining")
+        self.assertEqual(result["recommended_next_experiment"]["name"], "feature_subset_search")

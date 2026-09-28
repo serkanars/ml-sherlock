@@ -32,7 +32,13 @@ experiments:
   max_iterations: 15
   adaptation_fraction: 0.5
   min_improvement_pct: 1.0
-  allowed_actions: [retrain_recent_data, model_search, drop_drifted_features]
+  allowed_actions:
+    - retrain_recent_data
+    - drop_drifted_features
+    - model_search
+    - segment_retraining
+    - recent_window_retraining
+    - feature_subset_search
 
 llm:
   enabled: true

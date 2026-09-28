@@ -82,7 +82,12 @@ print(result["investigation"]["report"])
 Experiment actions use the same production adaptation/holdout split for comparison:
 `retrain_recent_data` retrains the baseline model family with reference plus adaptation
 data; `drop_drifted_features` uses that family after removing drifted inputs;
-`model_search` compares all configured model candidates on the adapted data.
+`model_search` compares all configured model candidates on the adapted data;
+`segment_retraining` adds only adaptation rows belonging to the strongest evidenced
+degraded segment; `recent_window_retraining` trains only on the recent labelled
+adaptation window; and `feature_subset_search` compares a bounded set of subsets
+derived from ranked evidence. Every action must be present in `allowed_actions`; LLM
+planning cannot execute an unregistered action or arbitrary code.
 Trials compare against the last accepted model. Accepted model families and feature
 removals carry forward; rejected trials leave that state unchanged. The tree models
 are refitted on reference plus adaptation data, with each row included once (this is
@@ -97,6 +102,8 @@ The logged model and `selected_model` identify the tested candidate;
 `recommended_model` identifies the current accepted model family. In cumulative
 runs, `holdout_baseline_*` refers to the previous accepted model; `parent_iteration`
 records that lineage. All candidate scores are stored in `research/candidates.json`.
+Each experiment records its hypothesis and evidence IDs, dataset row counts, features,
+model, holdout metrics, improvement, decision, and random seed.
 Existing runs are not rewritten.
 
 The final HTML report includes independent evaluation, exact estimator parameters,

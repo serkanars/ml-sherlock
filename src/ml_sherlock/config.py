@@ -10,11 +10,25 @@ import yaml
 
 ModelName = Literal["random_forest", "extra_trees", "xgboost", "lightgbm"]
 MetricName = Literal["rmse", "mae", "mape", "r2"]
-ExperimentAction = Literal["retrain_recent_data", "drop_drifted_features", "model_search"]
+ExperimentAction = Literal[
+    "retrain_recent_data",
+    "drop_drifted_features",
+    "model_search",
+    "segment_retraining",
+    "recent_window_retraining",
+    "feature_subset_search",
+]
 ProviderName = Literal["ollama", "openai", "openai_compatible"]
 MultipleTestingMethod = Literal["benjamini_hochberg", "none"]
 SUPPORTED_MODELS = ("random_forest", "extra_trees", "xgboost", "lightgbm")
-SUPPORTED_ACTIONS = ("retrain_recent_data", "drop_drifted_features", "model_search")
+SUPPORTED_ACTIONS = (
+    "retrain_recent_data",
+    "drop_drifted_features",
+    "model_search",
+    "segment_retraining",
+    "recent_window_retraining",
+    "feature_subset_search",
+)
 
 
 class StrictConfig(BaseModel):

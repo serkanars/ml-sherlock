@@ -23,6 +23,9 @@ ACTION_NAMES = {
     "retrain_recent_data": "Güncel veriyle eğitim",
     "model_search": "Model karşılaştırması",
     "drop_drifted_features": "Driftli özellikleri çıkarma",
+    "segment_retraining": "Segment odaklı eğitim",
+    "recent_window_retraining": "Son pencereyle eğitim",
+    "feature_subset_search": "Özellik alt kümesi araması",
 }
 EVIDENCE_NAMES = {
     "performance_degradation": "Performans düşüşü",
