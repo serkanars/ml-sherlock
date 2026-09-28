@@ -12,30 +12,77 @@ logger = logging.getLogger("ml_sherlock.llm")
 
 
 class LLMProvider(Protocol):
-    def plan(self, evidence: dict, history: list[dict], allowed_actions: list[str]) -> dict: ...
+    def plan(
+        self, planning_context: dict, history: list[dict], allowed_actions: list[str]
+    ) -> dict: ...
 
 
 class _ConstrainedProvider:
-    def _prompt(self, evidence, history, allowed_actions):
+    def _prompt(self, planning_context, history, allowed_actions):
         return (
-            "You are an ML investigation planner. Statistical evidence is authoritative. "
-            "Choose exactly one permitted experiment action; do not invent an action, execute code, "
-            "or claim causality. Return exactly one JSON object and no Markdown. Required string fields: "
-            "action, hypothesis, rationale. Optional field: confidence.\n"
+            "You are an ML investigation planner. All statistics have already been calculated. "
+            "Reason only over the supplied measured evidence and diagnoses. Do not calculate statistics, "
+            "invent evidence, execute code, or claim causality. Select one supplied hypothesis and exactly "
+            "one permitted experiment action. Evidence IDs must be copied verbatim from top_evidence and "
+            "must support the selected hypothesis. Return exactly one JSON object and no Markdown. "
+            "Required fields: hypothesis_id (string), evidence_ids (array of strings), action (string), "
+            "and rationale (non-empty string). Do not return additional fields.\n"
             f"Allowed actions: {json.dumps(allowed_actions)}\n"
-            f"Evidence: {json.dumps(evidence, default=str)}\n"
-            f"Previous experiments: {json.dumps(history[-10:], default=str)}"
+            f"Investigation context: {json.dumps(planning_context)}\n"
+            f"Previous experiments: {json.dumps(history[-10:])}"
         )
 
     @staticmethod
-    def _validate(plan, allowed_actions):
-        if not isinstance(plan, dict) or plan.get("action") not in allowed_actions:
+    def _validate(plan, allowed_actions, planning_context):
+        required = {"hypothesis_id", "evidence_ids", "action", "rationale"}
+        if not isinstance(plan, dict):
+            raise ValueError("LLM plan must be a JSON object.")
+        if set(plan) != required:
+            raise ValueError(
+                "LLM plan must contain exactly hypothesis_id, evidence_ids, action, and rationale."
+            )
+        if plan.get("action") not in allowed_actions:
             raise ValueError("LLM returned an invalid or disallowed experiment action.")
-        for field in ("hypothesis", "rationale"):
-            if not isinstance(plan.get(field), str) or not plan[field].strip():
-                raise ValueError(f"LLM plan must include non-empty '{field}'.")
-        plan["source"] = "llm"
-        return plan
+        if not isinstance(plan.get("hypothesis_id"), str) or not plan["hypothesis_id"].strip():
+            raise ValueError("LLM plan must include a non-empty 'hypothesis_id'.")
+        if not isinstance(plan.get("rationale"), str) or not plan["rationale"].strip():
+            raise ValueError("LLM plan must include a non-empty 'rationale'.")
+        evidence_ids = plan.get("evidence_ids")
+        if (
+            not isinstance(evidence_ids, list)
+            or any(not isinstance(item, str) or not item.strip() for item in evidence_ids)
+            or len(evidence_ids) != len(set(evidence_ids))
+        ):
+            raise ValueError("LLM plan 'evidence_ids' must be a list of unique strings.")
+
+        hypotheses = {
+            item.get("id"): item
+            for item in planning_context.get("hypotheses", [])
+            if isinstance(item, dict) and item.get("id")
+        }
+        hypothesis = hypotheses.get(plan["hypothesis_id"])
+        if hypothesis is None:
+            raise ValueError("LLM plan references an unknown hypothesis ID.")
+        known_evidence_ids = {
+            item.get("id")
+            for item in planning_context.get("top_evidence", [])
+            if isinstance(item, dict) and item.get("id")
+        }
+        unknown = set(evidence_ids) - known_evidence_ids
+        if unknown:
+            raise ValueError(
+                f"LLM plan references unknown evidence IDs: {sorted(unknown)}"
+            )
+        hypothesis_evidence = set(hypothesis.get("evidence_ids", []))
+        unrelated = set(evidence_ids) - hypothesis_evidence
+        if unrelated:
+            raise ValueError(
+                f"LLM plan references evidence outside the selected hypothesis: {sorted(unrelated)}"
+            )
+        available_support = hypothesis_evidence & known_evidence_ids
+        if available_support and not evidence_ids:
+            raise ValueError("LLM plan must reference measured evidence for this hypothesis.")
+        return {**plan, "source": "llm"}
 
     @staticmethod
     def _parse_json_object(content):
@@ -64,12 +111,15 @@ class OllamaProvider(_ConstrainedProvider):
     def __init__(self, config: LLMConfig):
         self.config = config
 
-    def plan(self, evidence, history, allowed_actions):
+    def plan(self, planning_context, history, allowed_actions):
         payload = {
             "model": self.config.model,
             "stream": False,
             "options": {"temperature": self.config.temperature},
-            "messages": [{"role": "user", "content": self._prompt(evidence, history, allowed_actions)}],
+            "messages": [{
+                "role": "user",
+                "content": self._prompt(planning_context, history, allowed_actions),
+            }],
         }
         # Ollama Cloud does not support structured outputs. Cloud aliases use
         # the ``-cloud`` suffix, so rely on prompt-constrained JSON there.
@@ -84,8 +134,13 @@ class OllamaProvider(_ConstrainedProvider):
             with urlopen(request, timeout=self.config.timeout_seconds) as response:  # nosec B310: user-configured provider
                 result = json.loads(response.read())
             content = result.get("message", {}).get("content", "")
-            plan = self._validate(self._parse_json_object(content), allowed_actions)
-            logger.info("Ollama plan received | action=%s | confidence=%s", plan["action"], plan.get("confidence", "unspecified"))
+            plan = self._validate(
+                self._parse_json_object(content), allowed_actions, planning_context
+            )
+            logger.info(
+                "Ollama plan received | action=%s | hypothesis=%s | evidence=%d",
+                plan["action"], plan["hypothesis_id"], len(plan["evidence_ids"]),
+            )
             return plan
         except Exception as exc:
             logger.warning("Ollama planning failed | endpoint=%s | model=%s | reason=%s", base_url, self.config.model, exc)
@@ -96,7 +151,7 @@ class OpenAICompatibleProvider(_ConstrainedProvider):
     def __init__(self, config: LLMConfig):
         self.config = config
 
-    def plan(self, evidence, history, allowed_actions):
+    def plan(self, planning_context, history, allowed_actions):
         try:
             from openai import OpenAI
         except ImportError as exc:
@@ -110,10 +165,20 @@ class OpenAICompatibleProvider(_ConstrainedProvider):
             model=self.config.model,
             temperature=self.config.temperature,
             response_format={"type": "json_object"},
-            messages=[{"role": "user", "content": self._prompt(evidence, history, allowed_actions)}],
+            messages=[{
+                "role": "user",
+                "content": self._prompt(planning_context, history, allowed_actions),
+            }],
         )
-        plan = self._validate(json.loads(response.choices[0].message.content), allowed_actions)
-        logger.info("OpenAI-compatible plan received | action=%s | confidence=%s", plan["action"], plan.get("confidence", "unspecified"))
+        plan = self._validate(
+            self._parse_json_object(response.choices[0].message.content),
+            allowed_actions,
+            planning_context,
+        )
+        logger.info(
+            "OpenAI-compatible plan received | action=%s | hypothesis=%s | evidence=%d",
+            plan["action"], plan["hypothesis_id"], len(plan["evidence_ids"]),
+        )
         return plan
 
 

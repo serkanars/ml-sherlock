@@ -82,7 +82,7 @@ class ResearchLoop:
                 result["mlflow_run_id"] = self.iteration_logger(result, drift)
             logger.info(
                 "[%02d/%02d] action=%s | hypothesis=%s | drift=%s | model=%s | %s=%+.2f%% | train=%.2fs | status=%s",
-                iteration, self.max_experiments, action, plan.get("hypothesis", "n/a"),
+                iteration, self.max_experiments, action, plan.get("hypothesis_id", "n/a"),
                 ", ".join(result["drifted_features"]) or "none", result["recommended_model"],
                 result["selection_metric"], result["improvement_pct"], result["training_duration_seconds"], result["status"],
             )

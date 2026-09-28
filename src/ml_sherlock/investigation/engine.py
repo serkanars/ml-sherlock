@@ -9,12 +9,32 @@ from .hypotheses import HypothesisEngine
 
 logger = logging.getLogger("ml_sherlock.research")
 
+_TOP_EVIDENCE_LIMIT = 10
+_COMPACT_METADATA_KEYS = (
+    "drift",
+    "effect_size",
+    "adjusted_p_value",
+    "statistically_significant",
+    "degradation_pct",
+    "error_lift",
+    "association_score",
+    "reference_metric",
+    "production_metric",
+    "interpretation",
+)
+
 
 class ResearchEngine:
-    def __init__(self, planner=None, allowed_actions=None, hypothesis_engine=None):
+    def __init__(
+        self, planner=None, allowed_actions=None, hypothesis_engine=None,
+        top_evidence_limit=_TOP_EVIDENCE_LIMIT,
+    ):
+        if top_evidence_limit < 1:
+            raise ValueError("top_evidence_limit must be at least 1")
         self.planner = planner
         self.allowed_actions = allowed_actions or list(SUPPORTED_ACTIONS)
         self.hypothesis_engine = hypothesis_engine or HypothesisEngine()
+        self.top_evidence_limit = top_evidence_limit
 
     def investigate(
         self,
@@ -41,14 +61,16 @@ class ResearchEngine:
             "recommended_next_experiment": _experiment(experiment_name),
         }
         if self.planner:
-            evidence = {
-                "diagnosis": diagnosis,
-                "drift": drift,
-                "deterministic_hypotheses": hypotheses,
-            }
+            planning_context = _planning_context(
+                diagnosis,
+                diagnoses,
+                ranked_evidence,
+                hypotheses,
+                self.top_evidence_limit,
+            )
             try:
                 result["llm_plan"] = self.planner.plan(
-                    evidence, history or [], self.allowed_actions
+                    planning_context, history or [], self.allowed_actions
                 )
             except Exception as exc:
                 result["llm_plan_error"] = str(exc)
@@ -56,6 +78,59 @@ class ResearchEngine:
                     "LLM plan unavailable; using deterministic fallback | reason=%s", exc
                 )
         return result
+
+
+def _planning_context(diagnosis, diagnoses, ranked_evidence, hypotheses, limit):
+    top_evidence = [
+        _compact_evidence(item) for item in ranked_evidence[:limit]
+    ]
+    top_evidence_ids = {item["id"] for item in top_evidence}
+    visible_hypotheses = [
+        item for item in hypotheses
+        if not item.get("evidence_ids")
+        or top_evidence_ids.intersection(item["evidence_ids"])
+    ]
+    return {
+        "performance_summary": {
+            "status": diagnosis.get("status"),
+            "summary": diagnosis.get("summary"),
+            "degraded_metrics": [
+                {
+                    key: item.get(key)
+                    for key in ("metric", "baseline", "production", "change_pct")
+                }
+                for item in diagnosis.get("performance_degradation", [])
+            ],
+        },
+        "diagnosis": [item.to_dict() for item in diagnoses],
+        "top_evidence": top_evidence,
+        "hypotheses": visible_hypotheses,
+    }
+
+
+def _compact_evidence(evidence):
+    serialized = evidence.to_dict()
+    metadata = serialized.get("metadata") or {}
+    return {
+        key: serialized.get(key)
+        for key in (
+            "id",
+            "type",
+            "metric",
+            "value",
+            "feature",
+            "segment",
+            "threshold",
+            "severity",
+            "direction",
+            "sample_size_reference",
+            "sample_size_production",
+        )
+    } | {
+        "metadata": {
+            key: metadata[key] for key in _COMPACT_METADATA_KEYS if key in metadata
+        }
+    }
 
 
 def _legacy_typed_inputs(diagnosis, drift):
