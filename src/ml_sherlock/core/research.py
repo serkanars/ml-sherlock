@@ -11,8 +11,10 @@ from ..reporting.report import ReportBuilder
 from ..investigation import (
     DiagnosisEngine,
     ExperimentRunner,
+    FeatureErrorAnalyzer,
     ResearchEngine,
     ResearchLoop,
+    ResidualAnalyzer,
     SegmentAnalyzer,
 )
 from ..config import SherlockConfig
@@ -43,6 +45,23 @@ class ResearchRunner:
         self.drift_enabled = drift_enabled
         self.error_analysis_enabled = error_analysis_enabled
         self.error_metrics = error_metrics or ["rmse", "mae", "mape", "r2"]
+        self.residual_analyzer = (
+            ResidualAnalyzer(
+                alpha=drift_p_value_threshold,
+                multiple_testing=drift_multiple_testing,
+            )
+            if error_analysis_enabled
+            else None
+        )
+        self.feature_error_analyzer = (
+            FeatureErrorAnalyzer(
+                random_state=random_state,
+                alpha=drift_p_value_threshold,
+                multiple_testing=drift_multiple_testing,
+            )
+            if error_analysis_enabled
+            else None
+        )
         self.segment_config = segment_config
         self.segment_analyzer = (
             SegmentAnalyzer.from_config(segment_config)
@@ -126,37 +145,58 @@ class ResearchRunner:
             raise RuntimeError("Call fit() before investigate().")
         ref, prod = pd.read_csv(reference_path), pd.read_csv(production_path)
         prod, final_evaluation = train_test_split(prod, test_size=.2, random_state=self.experiments.random_state)
+        reference_features = ref.drop(columns=[self.target])
+        production_features = prod.drop(columns=[self.target])
+        reference_predictions = self.model.predict(reference_features)
+        production_predictions = self.model.predict(production_features)
         production_metrics = self.trainer.evaluate(self.model, prod, self.target)
         target_drift = self.target_drift.analyze(ref[self.target], prod[self.target], self.target)
         prediction_drift = self.prediction_drift.analyze(
             self.model,
-            ref.drop(columns=[self.target]),
-            prod.drop(columns=[self.target]),
+            reference_features,
+            production_features,
         )
+        residual_analysis = None
+        feature_error_analysis = None
+        residual_analyzer = getattr(self, "residual_analyzer", None)
+        feature_error_analyzer = getattr(self, "feature_error_analyzer", None)
+        if residual_analyzer is not None:
+            residual_analysis = residual_analyzer.analyze(
+                self.model, prod, self.target, reference=ref
+            )
+        if feature_error_analyzer is not None:
+            feature_error_analysis = feature_error_analyzer.analyze(
+                production_features,
+                prod[self.target],
+                production_predictions,
+            )
         segment_analysis = None
         if self.segment_analyzer is not None:
-            reference_features = ref.drop(columns=[self.target])
-            production_features = prod.drop(columns=[self.target])
             segment_analysis = self.segment_analyzer.analyze(
                 reference_features,
                 production_features,
                 ref[self.target],
-                self.model.predict(reference_features),
+                reference_predictions,
                 prod[self.target],
-                self.model.predict(production_features),
+                production_predictions,
                 metric=self.metric,
             )
-        drift = self.drift.compare(ref.drop(columns=[self.target]),
-                                   prod.drop(columns=[self.target])) if self.drift_enabled else []
+        drift = self.drift.compare(
+            reference_features, production_features
+        ) if self.drift_enabled else []
         evidence_store = EvidenceStore([target_drift, prediction_drift])
         evidence_store.extend(
             _feature_drift_evidence(
                 drift,
-                ref.drop(columns=[self.target]),
-                prod.drop(columns=[self.target]),
+                reference_features,
+                production_features,
                 self.drift.effect_threshold,
             )
         )
+        if residual_analysis is not None and residual_analysis["evidence"] is not None:
+            evidence_store.add(residual_analysis["evidence"])
+        if feature_error_analysis is not None:
+            evidence_store.extend(feature_error_analysis["evidence"])
         if segment_analysis is not None:
             evidence_store.extend(segment_analysis["evidence"])
         baseline_for_diagnosis = {
@@ -216,7 +256,9 @@ class ResearchRunner:
                                      drift, diagnosis, research,
                                      evidence=evidence_store.all(),
                                      ranked_evidence=ranked_evidence,
-                                     segment_analysis=segment_analysis)
+                                     segment_analysis=segment_analysis,
+                                     residual_analysis=residual_analysis,
+                                     feature_error_analysis=feature_error_analysis)
         self.tracker.log_final_report(
             self.baseline_run_id,
             decision,
@@ -239,9 +281,13 @@ class ResearchRunner:
                 **segment_analysis,
                 "evidence": segment_evidence,
             }
+        serialized_residual_analysis = _serialize_analysis(residual_analysis)
+        serialized_feature_error_analysis = _serialize_analysis(feature_error_analysis)
         return {"production_metrics": production_metrics, "drift": drift,
                 "target_drift": target_evidence, "prediction_drift": prediction_evidence,
                 "segment_analysis": serialized_segment_analysis,
+                "residual_analysis": serialized_residual_analysis,
+                "feature_error_analysis": serialized_feature_error_analysis,
                 "evidence": evidence_store.to_dict(),
                 "diagnosis": diagnosis, "research": research, "report": report}
 
@@ -267,3 +313,15 @@ def _feature_drift_evidence(results, reference, production, threshold):
             )
         )
     return evidence
+
+
+def _serialize_analysis(analysis):
+    if analysis is None:
+        return None
+    serialized = dict(analysis)
+    evidence = serialized.get("evidence")
+    if isinstance(evidence, list):
+        serialized["evidence"] = [item.to_dict() for item in evidence]
+    elif evidence is not None:
+        serialized["evidence"] = evidence.to_dict()
+    return serialized
