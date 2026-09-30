@@ -4,4 +4,4 @@ from ml_sherlock import Sherlock
 # Python code for normal runs.
 sherlock = Sherlock(config="sherlock.example.yaml")
 result = sherlock.investigate()
-print(result)
+print(f"Report: {result['investigation']['report']}")

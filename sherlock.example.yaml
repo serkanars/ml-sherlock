@@ -29,7 +29,7 @@ investigation:
     max_segments: 20
 
 experiments:
-  max_iterations: 15
+  max_iterations: 25
   adaptation_fraction: 0.5
   min_improvement_pct: 1.0
   allowed_actions:
@@ -48,4 +48,4 @@ llm:
   temperature: 0.1
 
 report:
-  output: artifacts/report.html
+  output: artifacts/report_test.html
