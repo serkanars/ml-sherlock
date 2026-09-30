@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ml-sherlock"
-version = "0.1.0"
+version = "0.2.0"
 description = "Investigate why machine learning models fail in production."
 readme = "README.md"
 requires-python = ">=3.10"
